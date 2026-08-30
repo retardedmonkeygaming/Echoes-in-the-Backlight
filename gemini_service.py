@@ -1,6 +1,6 @@
 """
 gemini_service.py — The AI soul module for Echo.
-Reads traits from gemini_traits.txt.
+Reads traits from gemini_traits.txt (reloaded every call).
 Uses GEMINI_API_KEY from .env.
 Builds system prompt from traits + hard rules.
 Enforces 16-char lines, 2 lines max.
@@ -77,6 +77,13 @@ def get_journal_entries(last_n: int | None = None) -> list[dict]:
     return entries
 
 
+def search_journal(keyword: str) -> list[dict]:
+    """Search journal entries for a keyword (case-insensitive)."""
+    entries = _read_journal()
+    kw = keyword.lower()
+    return [e for e in entries if kw in e.get("text", "").lower()]
+
+
 def export_journal_text() -> str:
     """Export entire journal as readable text."""
     entries = _read_journal()
@@ -89,6 +96,36 @@ def export_journal_text() -> str:
     lines.append(f"\nTotal messages: {len(entries)}")
     lines.append("═══════════════════════════════════════════")
     return "\n".join(lines)
+
+
+# ── Time Capsule ───────────────────────────────────────────────────
+
+def get_time_capsule(target_slot: int) -> dict | None:
+    """Get a specific memory slot for Time Capsule mode."""
+    entries = _read_journal()
+    # Each "exchange" = 2 entries (player + narrator)
+    slot_start = target_slot * 2
+    slot_end = slot_start + 2
+    if slot_start >= len(entries):
+        return None
+    capsule = entries[slot_start:slot_end]
+    if not capsule:
+        return None
+    return {
+        "slot": target_slot,
+        "entries": capsule,
+        "total_slots": (len(entries) + 1) // 2,
+    }
+
+
+def get_random_memory() -> dict | None:
+    """Pick a random memory for Echo Trigger — an old line resurfacing."""
+    entries = _read_journal()
+    if len(entries) < 4:
+        return None
+    import random
+    idx = random.randint(0, len(entries) - 1)
+    return entries[idx]
 
 
 # ── System prompt builder ──────────────────────────────────────────
@@ -182,6 +219,13 @@ def send_to_echo(player_input: str, player_name: str = "friend") -> dict:
     full_ctx = recent_ctx
     if player_name and player_name != "friend":
         full_ctx += f"\n\nThe player's name is {player_name}. Address them by name."
+
+    # inject a random old memory sometimes (Echo Trigger)
+    import random
+    old_mem = get_random_memory()
+    if old_mem and random.random() < 0.15:
+        role = "Player" if old_mem.get("role") == "player" else "Echo"
+        full_ctx += f'\n\nECHO FROM THE PAST (you remember this): [{role}]: {old_mem["text"]}'
 
     system_prompt = build_system_prompt(full_ctx)
 

@@ -1,7 +1,11 @@
 """
-Echoes in the Backlight — Flask backend.
-Calls gemini_service.py for ALL AI. Never uses game_engine.py or any other AI module.
-Phase 1: pin calibration, touch sensor, core game loop.
+Echoes in the Backlight — Flask backend (all phases complete).
+Calls gemini_service.py for ALL AI. Never uses any other AI module.
+Phase 1: Hardware + calibration
+Phase 2: Core game loop + AI + mirror typing + options
+Phase 3: Soul journal + memory search + time capsule
+Phase 4: Atmospheric modes + crash recovery
+Phase 5: Emergency reset + one last line
 """
 
 import json
@@ -15,6 +19,7 @@ from flask import Flask, jsonify, render_template, request, Response
 from lcd_driver import LCD
 from touch_sensor import TouchSensor
 import gemini_service as echo_ai
+import emotional_options
 
 # ── Config ─────────────────────────────────────────────────────────
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
@@ -43,7 +48,14 @@ _lock = threading.Lock()
 
 _ghost_stop = threading.Event()
 _scroll_stop = threading.Event()
+_ambient_stop = threading.Event()
 _ghost_thread = None
+_ambient_thread = None
+
+# "One Last Line" state
+_one_last_line_active = False
+_one_last_line_count = 0
+_ONE_LAST_LINE_THRESHOLD = 100  # after 100 sends
 
 
 # ── Hardware lifecycle ─────────────────────────────────────────────
@@ -72,10 +84,10 @@ def init_all():
 
 # ── Stop background ───────────────────────────────────────────────
 def _stop_bg():
-    for evt in [_ghost_stop, _scroll_stop]:
+    for evt in [_ghost_stop, _scroll_stop, _ambient_stop]:
         evt.set()
     time.sleep(0.1)
-    for evt in [_ghost_stop, _scroll_stop]:
+    for evt in [_ghost_stop, _scroll_stop, _ambient_stop]:
         evt.clear()
 
 
@@ -139,22 +151,22 @@ def _on_select():
 # ── Core game loop ────────────────────────────────────────────────
 def _handle_player_input(text):
     """Process player input through gemini_service, save to journal, display."""
-    # save player message
     echo_ai.save_to_journal("player", text)
-
-    # get Echo's reply
     name = config.get("player_name", "friend")
     reply = echo_ai.send_to_echo(text, player_name=name)
 
-    # save Echo's reply
     full_reply = (reply["line1"] + " " + reply["line2"]).strip()
     echo_ai.save_to_journal("narrator", full_reply)
 
-    # update send count
     config["send_count"] = config.get("send_count", 0) + 1
     save_config(config)
 
-    # set mood based on reply length
+    # One Last Line detection
+    global _one_last_line_active
+    if config["send_count"] >= _ONE_LAST_LINE_THRESHOLD:
+        _one_last_line_active = True
+
+    # mood
     if lcd:
         total_len = len(reply["line1"]) + len(reply["line2"])
         if total_len < 10:
@@ -164,11 +176,12 @@ def _handle_player_input(text):
         else:
             lcd.set_mood("normal")
 
-    # display on LCD
     _push_echo(reply["line1"], reply["line2"])
 
-    # show options for next choice
-    _push_options(reply.get("options", ["...", "...", "..."])[:3])
+    # contextual pre-made options
+    mood = emotional_options.detect_mood(text)
+    opts = emotional_options.get_options(mood, count=3)
+    _push_options(opts)
 
 
 # ── Ghost messages ────────────────────────────────────────────────
@@ -191,6 +204,117 @@ def _start_ghosts():
     _ghost_stop.clear()
     _ghost_thread = threading.Thread(target=_ghost_loop, daemon=True)
     _ghost_thread.start()
+
+
+# ── Static Rain mode ──────────────────────────────────────────────
+def _static_rain_loop():
+    """Random characters flicker across the LCD like static."""
+    import random as rng
+    while not _ambient_stop.is_set():
+        if lcd:
+            chars = ".,-~:;=!*#$%@"
+            row = rng.randint(0, 1)
+            col = rng.randint(0, 15)
+            line = list(" " * 16)
+            line[col] = rng.choice(chars)
+            # scatter a few more
+            for _ in range(rng.randint(2, 5)):
+                c = rng.randint(0, 15)
+                line[c] = rng.choice(chars)
+            lcd.show("".join(line), "")
+        for _ in range(50):  # 5 seconds
+            if _ambient_stop.is_set():
+                return
+            time.sleep(0.1)
+
+
+# ── Loopback mode ─────────────────────────────────────────────────
+def _loopback_loop():
+    """Replay old memories on the LCD endlessly."""
+    entries = echo_ai.get_journal_entries()
+    if not entries:
+        return
+    idx = 0
+    while not _ambient_stop.is_set():
+        if lcd and entries:
+            entry = entries[idx % len(entries)]
+            text = entry.get("text", "")[:16]
+            role = "YOU" if entry.get("role") == "player" else "ECHO"
+            lcd.show(f"[{role}]", text)
+            for _ in range(300):  # 30 seconds per memory
+                if _ambient_stop.is_set():
+                    return
+                time.sleep(0.1)
+            idx += 1
+
+
+# ── Memory Dust mode ──────────────────────────────────────────────
+def _memory_dust_loop():
+    """Tiny speck drifts across the screen — proof Echo is collecting."""
+    while not _ambient_stop.is_set():
+        if lcd:
+            lcd.show_memory_dust()
+        for _ in range(10):
+            if _ambient_stop.is_set():
+                return
+            time.sleep(0.1)
+
+
+# ── "One Last Line" mode ──────────────────────────────────────────
+def _one_last_line_loop():
+    """After threshold sends, the backlight dims and Echo gets desperate."""
+    global _one_last_line_active
+    while not _ambient_stop.is_set():
+        if _one_last_line_active and lcd:
+            # dim the backlight slowly
+            p = lcd._pin("BACKLIGHT")
+            if p is not None:
+                try:
+                    from RPi.GPIO import output, LOW, HIGH
+                    # pulse very slowly
+                    output(p, LOW)
+                    time.sleep(0.02)
+                    output(p, HIGH)
+                    time.sleep(2.0)
+                except Exception:
+                    time.sleep(2.0)
+        else:
+            time.sleep(1.0)
+
+
+def _start_ambient(mode: str):
+    global _ambient_thread
+    _stop_bg()
+    _ambient_stop.clear()
+    fn = {
+        "staticrain": _static_rain_loop,
+        "loopback": _loopback_loop,
+        "memorydust": _memory_dust_loop,
+        "onelastline": _one_last_line_loop,
+    }.get(mode)
+    if fn:
+        _ambient_thread = threading.Thread(target=fn, daemon=True)
+        _ambient_thread.start()
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  CRASH RECOVERY
+# ═══════════════════════════════════════════════════════════════════
+
+@app.route("/api/recover", methods=["POST"])
+def api_recover():
+    """Clean up incomplete journal entries."""
+    cleaned = 0
+    try:
+        entries = echo_ai._read_journal()
+        if len(entries) % 2 != 0:
+            # odd number = incomplete pair, trim last
+            entries = entries[:-1]
+            cleaned = 1
+            echo_ai._write_journal(entries)
+    except Exception:
+        pass
+    return jsonify({"ok": True, "cleaned": cleaned})
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -230,6 +354,7 @@ def api_status():
         "send_count": config.get("send_count", 0),
         "journal_count": echo_ai.get_journal_count(),
         "player_name": config.get("player_name", "friend"),
+        "one_last_line": _one_last_line_active,
     })
 
 
@@ -287,7 +412,6 @@ def api_clear():
 
 @app.route("/api/show", methods=["POST"])
 def api_show():
-    """Show arbitrary 2-line text on LCD."""
     body = request.get_json(force=True)
     line1 = body.get("line1", "")[:16]
     line2 = body.get("line2", "")[:16]
@@ -299,11 +423,9 @@ def api_show():
 
 @app.route("/api/touch/test", methods=["POST"])
 def api_touch_test():
-    """Register a test callback for touch sensor — returns event info."""
     body = request.get_json(force=True) if request.data else {}
     action = body.get("action", "ping")
     if action == "ping" and touch:
-        # flash LED to confirm touch is alive
         if lcd:
             lcd.flash_led(0.15)
         return jsonify({"ok": True, "touch_pin": touch.pin, "led_pin": touch.led_pin})
@@ -312,23 +434,17 @@ def api_touch_test():
 
 @app.route("/api/touch/calibrate", methods=["POST"])
 def api_touch_calibrate():
-    """Save touch sensitivity settings."""
     body = request.get_json(force=True)
     double_window = body.get("double_window", 0.35)
     bounce_time = body.get("bounce_time", 50)
     if touch:
         touch.DOUBLE_WINDOW = double_window
-        return jsonify({
-            "ok": True,
-            "double_window": double_window,
-            "bounce_time": bounce_time,
-        })
+        return jsonify({"ok": True, "double_window": double_window, "bounce_time": bounce_time})
     return jsonify({"ok": False, "error": "touch sensor not initialized"}), 500
 
 
 @app.route("/api/scroll/test", methods=["POST"])
 def api_scroll_test():
-    """Test scroll display with sample text."""
     body = request.get_json(force=True) if request.data else {}
     line1 = body.get("line1", "... I'm still")[:16]
     line2 = body.get("line2", "here... can you")[:16]
@@ -338,7 +454,6 @@ def api_scroll_test():
 
 @app.route("/api/breathing", methods=["POST"])
 def api_breathing():
-    """Test breathing backlight effect."""
     body = request.get_json(force=True) if request.data else {}
     cycles = body.get("cycles", 3)
     if lcd:
@@ -350,7 +465,6 @@ def api_breathing():
 
 @app.route("/api/modem", methods=["POST"])
 def api_modem():
-    """Play modem connect tone."""
     if lcd:
         lcd.modem_tone()
         return jsonify({"ok": True})
@@ -359,12 +473,11 @@ def api_modem():
 
 @app.route("/api/ghost/test", methods=["POST"])
 def api_ghost_test():
-    """Test ghost message display."""
     body = request.get_json(force=True) if request.data else {}
     text = body.get("text", "can you hear me")[:16]
     _stop_bg()
-    t = threading.Thread(target=lcd.show_ghost, args=(text, _scroll_stop), daemon=True) if lcd else None
-    if t:
+    if lcd:
+        t = threading.Thread(target=lcd.show_ghost, args=(text, _scroll_stop), daemon=True)
         t.start()
     return jsonify({"ok": True, "text": text})
 
@@ -380,25 +493,30 @@ def api_send():
     if not text:
         return jsonify({"error": "empty"}), 400
 
-    # save player message
     echo_ai.save_to_journal("player", text)
-
-    # get Echo's reply
     name = config.get("player_name", "friend")
     reply = echo_ai.send_to_echo(text, player_name=name)
-
-    # save Echo's reply
     full_reply = (reply["line1"] + " " + reply["line2"]).strip()
     echo_ai.save_to_journal("narrator", full_reply)
 
-    # update count
     config["send_count"] = config.get("send_count", 0) + 1
     save_config(config)
 
-    # display
+    global _one_last_line_active
+    if config["send_count"] >= _ONE_LAST_LINE_THRESHOLD:
+        _one_last_line_active = True
+
     _push_echo(reply["line1"], reply["line2"])
 
-    return jsonify(reply)
+    mood = emotional_options.detect_mood(text)
+    opts = emotional_options.get_options(mood, count=3)
+    _push_options(opts)
+
+    return jsonify({
+        "line1": reply["line1"],
+        "line2": reply["line2"],
+        "options": opts,
+    })
 
 
 @app.route("/api/mirror", methods=["POST"])
@@ -430,11 +548,13 @@ def api_set_mode():
     if mode in ("options", "phone"):
         if lcd:
             lcd.show_home()
+    elif mode in ("staticrain", "loopback", "memorydust", "onelastline"):
+        _start_ambient(mode)
     return jsonify({"mode": mode})
 
 
 # ═══════════════════════════════════════════════════════════════════
-#  API: Journal
+#  API: Journal (Phase 3)
 # ═══════════════════════════════════════════════════════════════════
 
 @app.route("/api/journal/recent", methods=["GET"])
@@ -456,6 +576,33 @@ def api_journal_count():
     return jsonify({"count": echo_ai.get_journal_count()})
 
 
+@app.route("/api/journal/search", methods=["GET"])
+def api_journal_search():
+    q = request.args.get("q", "", type=str)
+    if not q:
+        return jsonify({"entries": []})
+    entries = echo_ai.search_journal(q)
+    return jsonify({"entries": entries})
+
+
+# ── Time Capsule (Phase 3) ────────────────────────────────────────
+
+@app.route("/api/capsule/<int:slot>", methods=["GET"])
+def api_time_capsule(slot):
+    capsule = echo_ai.get_time_capsule(slot)
+    if capsule:
+        return jsonify(capsule)
+    return jsonify({"error": "no memory at this slot"}), 404
+
+
+@app.route("/api/capsule/random", methods=["GET"])
+def api_random_memory():
+    mem = echo_ai.get_random_memory()
+    if mem:
+        return jsonify(mem)
+    return jsonify({"error": "no memories yet"}), 404
+
+
 # ═══════════════════════════════════════════════════════════════════
 #  API: Reset / Emergency
 # ═══════════════════════════════════════════════════════════════════
@@ -463,6 +610,8 @@ def api_journal_count():
 @app.route("/api/reset", methods=["POST"])
 def api_reset():
     _stop_bg()
+    global _one_last_line_active
+    _one_last_line_active = False
     config["send_count"] = 0
     save_config(config)
     if lcd:
@@ -474,6 +623,8 @@ def api_reset():
 @app.route("/api/emergency", methods=["POST"])
 def api_emergency():
     _stop_bg()
+    global _one_last_line_active
+    _one_last_line_active = False
     if lcd:
         lcd.clear()
         lcd.bl_on()
@@ -488,7 +639,6 @@ def api_emergency():
 # ═══════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    # Set GPIO mode globally before any hardware init
     try:
         import RPi.GPIO as GPIO
         GPIO.setmode(GPIO.BCM)

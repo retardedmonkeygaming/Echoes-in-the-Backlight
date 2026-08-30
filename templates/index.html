@@ -17,30 +17,43 @@
   <label style="margin-top:0; text-align:center;">Signal Strength</label>
   <div style="display:flex; gap:2px; justify-content:center; margin-top:6px;" id="signal"></div>
   <div class="ht" id="send-count">0 sends</div>
+  <div id="onelast-badge" style="display:none; color:var(--dg); font-size:10px; margin-top:4px; letter-spacing:2px;">
+    ✦ ONE LAST LINE AWAITS ✦
+  </div>
 </div>
 
-<!-- Mode selector -->
+<!-- Mode selector — 9 modes -->
 <div class="sec">Input Mode</div>
 <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-bottom:16px;">
-  <button id="m-phone" onclick="setMode('phone')" class="sec">① Phone</button>
-  <button id="m-options" onclick="setMode('options')" class="sec">② Touch</button>
-  <button id="m-mirror" onclick="setMode('mirror')" class="sec">③ Mirror</button>
+  <button id="m-phone" onclick="setMode('phone')">① Phone</button>
+  <button id="m-options" onclick="setMode('options')">② Touch</button>
+  <button id="m-mirror" onclick="setMode('mirror')">③ Mirror</button>
+  <button id="m-staticrain" onclick="setMode('staticrain')">④ Static</button>
+  <button id="m-loopback" onclick="setMode('loopback')">⑤ Loop</button>
+  <button id="m-memorydust" onclick="setMode('memorydust')">⑥ Dust</button>
+  <button id="m-onelastline" onclick="setMode('onelastline')">⑦ Last Line</button>
 </div>
 
-<!-- Phone input panel -->
+<!-- Phone input panel (modes 1, 3) -->
 <div id="panel-phone" style="display:none;">
   <label>Your words</label>
   <input type="text" id="input" placeholder="type something..." maxlength="200">
   <button id="btn-send" onclick="sendText()">Send to 1602A</button>
 </div>
 
-<!-- Options panel -->
+<!-- Options panel (mode 2) -->
 <div id="panel-options" style="display:none;">
   <label style="margin-top:0;">Current Options on Display</label>
   <ul id="opt-list" style="list-style:none; margin-top:8px;">
     <li style="padding:10px 12px; margin-bottom:4px; background:var(--sf); border:1px solid var(--bd); border-radius:3px; font-size:13px;">loading...</li>
   </ul>
   <p class="ht">tap GPIO27 to scroll · double-tap to choose</p>
+</div>
+
+<!-- Ambient panel (static, loop, dust, last line) -->
+<div id="panel-ambient" style="display:none;">
+  <div class="st" id="ambient-status">running in background...</div>
+  <button class="sec" onclick="stopAmbient()">Stop & Return</button>
 </div>
 
 <!-- LCD Preview -->
@@ -63,6 +76,13 @@
 <div style="display:flex; gap:8px; margin-top:16px;">
   <button class="sec" onclick="refreshStatus()" style="flex:1; margin-top:0;">Refresh</button>
   <button class="dng" onclick="resetGame()" style="flex:1; margin-top:0;">New Game</button>
+</div>
+
+<!-- Crash Recovery -->
+<div style="margin-top:8px;">
+  <button class="sec" onclick="recoverCrash()" style="font-size:9px; padding:6px;">
+    Recover from crash
+  </button>
 </div>
 
 <script>
@@ -97,6 +117,7 @@
 
     document.getElementById('panel-phone').style.display = 'none';
     document.getElementById('panel-options').style.display = 'none';
+    document.getElementById('panel-ambient').style.display = 'none';
 
     if (mode === 'phone' || mode === 'mirror') {
       document.getElementById('panel-phone').style.display = 'block';
@@ -104,6 +125,15 @@
         mode === 'mirror' ? 'Mirror to 1602A' : 'Send to 1602A';
     } else if (mode === 'options') {
       document.getElementById('panel-options').style.display = 'block';
+    } else if (['staticrain','loopback','memorydust','onelastline'].includes(mode)) {
+      document.getElementById('panel-ambient').style.display = 'block';
+      const msgs = {
+        staticrain: 'Static rain — random characters on the screen...',
+        loopback: 'Loopback — old memories replay endlessly...',
+        memorydust: 'Memory dust — tiny specks drift across the screen...',
+        onelastline: 'One Last Line — the light is fading...',
+      };
+      document.getElementById('ambient-status').textContent = msgs[mode] || 'running...';
     }
 
     try {
@@ -196,6 +226,22 @@
     } catch(e) {}
   }
 
+  // ── Stop ambient ────────────────────────────────────────────
+  function stopAmbient() {
+    setMode('options');
+  }
+
+  // ── Crash recovery ──────────────────────────────────────────
+  async function recoverCrash() {
+    try {
+      const r = await fetch('/api/recover', {method: 'POST'});
+      const j = await r.json();
+      alert('Cleaned ' + j.cleaned + ' incomplete memory slots.');
+    } catch(e) {
+      alert('error: ' + e.message);
+    }
+  }
+
   // ── Status ──────────────────────────────────────────────────
   async function refreshStatus() {
     try {
@@ -212,6 +258,8 @@
       s.className = 'st ok';
       renderSignal(j.send_count || 0);
       if (j.mode !== currentMode) setMode(j.mode);
+      document.getElementById('onelast-badge').style.display =
+        j.one_last_line ? 'block' : 'none';
     } catch(e) {
       document.getElementById('status').textContent = 'offline';
     }
@@ -226,6 +274,7 @@
       refreshStatus();
       fetchOptions();
       document.getElementById('echo-box').style.display = 'none';
+      document.getElementById('onelast-badge').style.display = 'none';
     } catch(e) {}
   }
 
