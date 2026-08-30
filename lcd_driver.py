@@ -122,6 +122,8 @@ class LCD:
     # ── init ────────────────────────────────────────────────────────
     def init(self):
         if not _ON_PI: return
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setwarnings(False)
         with self._lock:
             for name in ["RS","RW","E","D4","D5","D6","D7","BACKLIGHT","LED","BUZZER"]:
                 p = self._pin(name)

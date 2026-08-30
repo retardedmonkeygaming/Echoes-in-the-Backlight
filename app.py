@@ -488,6 +488,13 @@ def api_emergency():
 # ═══════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
+    # Set GPIO mode globally before any hardware init
+    try:
+        import RPi.GPIO as GPIO
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setwarnings(False)
+    except (ImportError, RuntimeError):
+        pass
     init_all()
     _start_ghosts()
     app.run(host="0.0.0.0", port=5000, debug=False)

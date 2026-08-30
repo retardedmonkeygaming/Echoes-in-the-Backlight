@@ -35,6 +35,8 @@ class TouchSensor:
 
     def start(self):
         if not _ON_PI: return
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setwarnings(False)
         GPIO.setup(self.pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
         if self.led_pin is not None:
             GPIO.setup(self.led_pin, GPIO.OUT, initial=GPIO.LOW)
