@@ -4,15 +4,17 @@
 {% block content %}
 <div class="nav">
   <a href="/">game</a>
+  <a href="/journal">journal</a>
   <a class="active" href="/config">config</a>
+  <a href="/calibrate">calibrate</a>
 </div>
 
-<!-- API Key -->
-<label>Gemini API Key</label>
-<input type="password" id="apikey" placeholder="AIza..." value="{{ config.get('gemini_key', '') }}">
+<!-- Player Name -->
+<label>Player Name</label>
+<input type="text" id="player-name" placeholder="friend" value="{{ config.get('player_name', 'friend') }}">
 
 <!-- GPIO Pin Map -->
-<div class="section-title">GPIO Pin Map (BCM)</div>
+<div class="sec">GPIO Pin Map (BCM)</div>
 
 <div class="grid">
   <div><label>RS</label><input type="number" id="pin_RS" value="{{ config.pin_map.RS }}"></div>
@@ -35,29 +37,29 @@
 
 <button onclick="saveConfig()">Save &amp; Reinit Hardware</button>
 
-<!-- Calibration -->
-<div class="section-title">Calibrate &amp; Test</div>
+<!-- Quick Test -->
+<div class="sec">Quick Test</div>
 <label>Test String</label>
 <input type="text" id="testText" value="Hello, 1602A" maxlength="32">
 <div style="display:flex; gap:8px;">
-  <button onclick="testDisplay()" style="flex:2;">Calibrate &amp; Test</button>
-  <button class="secondary" onclick="toggleBacklight(true)" style="flex:1; margin-top:0;">BL ON</button>
-  <button class="secondary" onclick="toggleBacklight(false)" style="flex:1; margin-top:0;">BL OFF</button>
+  <button onclick="testDisplay()" style="flex:2;">Test Display</button>
+  <button class="sec" onclick="toggleBacklight(true)" style="flex:1; margin-top:0;">BL ON</button>
+  <button class="sec" onclick="toggleBacklight(false)" style="flex:1; margin-top:0;">BL OFF</button>
 </div>
 
 <!-- Emergency -->
-<div class="section-title">Emergency</div>
-<button class="danger" onclick="emergencyReset()">Emergency Reset</button>
-<div class="hint">Clears display, stops all activity, resets touch state.</div>
+<div class="sec">Emergency</div>
+<button class="dng" onclick="emergencyReset()">Emergency Reset</button>
+<p class="ht">Clears display, stops all activity, resets touch state.</p>
 
 <!-- Status -->
-<div class="status" id="status"></div>
+<div class="st" id="status"></div>
 
 <script>
   function setStatus(msg, cls) {
     const s = document.getElementById('status');
     s.textContent = msg;
-    s.className = 'status ' + (cls || '');
+    s.className = 'st ' + (cls || '');
   }
 
   async function saveConfig() {
@@ -68,7 +70,7 @@
       pinMap[k] = v === '' ? null : parseInt(v);
     });
     const body = {
-      gemini_key: document.getElementById('apikey').value,
+      player_name: document.getElementById('player-name').value.trim() || 'friend',
       pin_map: pinMap,
       cols: parseInt(document.getElementById('cols').value),
       rows: parseInt(document.getElementById('rows').value),
@@ -77,14 +79,14 @@
     try {
       const r = await fetch('/api/config', {
         method: 'POST',
-        headers: {'Content-Type':'application/json'},
+        headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(body)
       });
       const j = await r.json();
       if (j.ok) setStatus('✓ saved — hardware reinitialized', 'ok');
-      else setStatus('✗ ' + JSON.stringify(j), 'err');
+      else setStatus('✗ ' + JSON.stringify(j), 'er');
     } catch(e) {
-      setStatus('✗ ' + e.message, 'err');
+      setStatus('✗ ' + e.message, 'er');
     }
   }
 
@@ -94,14 +96,14 @@
     try {
       const r = await fetch('/api/test', {
         method: 'POST',
-        headers: {'Content-Type':'application/json'},
+        headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({text})
       });
       const j = await r.json();
       if (j.ok) setStatus('✓ display should show: ' + j.text, 'ok');
-      else setStatus('✗ ' + j.error, 'err');
+      else setStatus('✗ ' + j.error, 'er');
     } catch(e) {
-      setStatus('✗ ' + e.message, 'err');
+      setStatus('✗ ' + e.message, 'er');
     }
   }
 
@@ -109,12 +111,12 @@
     try {
       await fetch('/api/backlight', {
         method: 'POST',
-        headers: {'Content-Type':'application/json'},
+        headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({on})
       });
       setStatus(on ? 'backlight ON' : 'backlight OFF', 'ok');
     } catch(e) {
-      setStatus('✗ ' + e.message, 'err');
+      setStatus('✗ ' + e.message, 'er');
     }
   }
 
@@ -124,7 +126,7 @@
       await fetch('/api/emergency', {method: 'POST'});
       setStatus('✓ emergency reset complete', 'ok');
     } catch(e) {
-      setStatus('✗ ' + e.message, 'err');
+      setStatus('✗ ' + e.message, 'er');
     }
   }
 </script>

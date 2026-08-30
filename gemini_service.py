@@ -5,23 +5,26 @@ Uses GEMINI_API_KEY from .env.
 Builds system prompt from traits + hard rules.
 Enforces 16-char lines, 2 lines max.
 Returns only the final reply text, ready for the 1602A.
+Uses google.genai library (NOT google.generativeai).
 """
 
 import json
 import os
-import re
+import time
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# ── Paths ──────────────────────────────────────────────────────────
+_BASE = os.path.dirname(os.path.abspath(__file__))
+TRAITS_PATH = os.path.join(_BASE, "gemini_traits.txt")
+JOURNAL_PATH = os.path.join(_BASE, "echoes_journal.json")
+
+
 # ── Traits loader ──────────────────────────────────────────────────
-TRAITS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gemini_traits.txt")
-JOURNAL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "echoes_journal.json")
-
-
 def _load_traits() -> str:
-    """Read the full trait list from gemini_traits.txt."""
+    """Read the full trait list from gemini_traits.txt. Reloaded every call."""
     try:
         with open(TRAITS_PATH, "r", encoding="utf-8") as f:
             return f.read().strip()
@@ -29,44 +32,63 @@ def _load_traits() -> str:
         return ""
 
 
-def _load_journal_context(last_n: int = 5) -> str:
-    """Load the last N slot-pairs from echoes_journal.json for context."""
+# ── Journal persistence ────────────────────────────────────────────
+
+def _read_journal() -> list[dict]:
+    """Read the full journal from disk."""
     if not os.path.exists(JOURNAL_PATH):
-        return ""
+        return []
     try:
         with open(JOURNAL_PATH, "r", encoding="utf-8") as f:
-            entries = json.load(f)
-        if not entries:
-            return ""
-        # get last N entries
-        recent = entries[-last_n:] if len(entries) > last_n else entries
-        lines = ["MEMORY CONTEXT (recent exchanges):"]
-        for entry in recent:
-            role = "Player" if entry.get("role") == "player" else "Echo"
-            text = entry.get("text", "")
-            lines.append(f"  [{role}]: {text}")
-        return "\n".join(lines)
+            return json.load(f)
     except (json.JSONDecodeError, KeyError):
-        return ""
+        return []
 
 
-def _load_all_journal() -> str:
-    """Load the entire journal for Echo to quote old lines."""
-    if not os.path.exists(JOURNAL_PATH):
-        return ""
-    try:
-        with open(JOURNAL_PATH, "r", encoding="utf-8") as f:
-            entries = json.load(f)
-        if not entries:
-            return ""
-        lines = ["FULL JOURNAL (Echo can quote these):"]
-        for entry in entries:
-            role = "Player" if entry.get("role") == "player" else "Echo"
-            text = entry.get("text", "")
-            lines.append(f"  [{role}]: {text}")
-        return "\n".join(lines)
-    except (json.JSONDecodeError, KeyError):
-        return ""
+def _write_journal(entries: list[dict]) -> None:
+    """Write the full journal to disk atomically."""
+    tmp = JOURNAL_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(entries, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, JOURNAL_PATH)
+
+
+def save_to_journal(role: str, text: str) -> None:
+    """Append a message to echoes_journal.json."""
+    entries = _read_journal()
+    entries.append({
+        "role": role,
+        "text": text,
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    })
+    _write_journal(entries)
+
+
+def get_journal_count() -> int:
+    """Return total number of messages in the journal."""
+    return len(_read_journal())
+
+
+def get_journal_entries(last_n: int | None = None) -> list[dict]:
+    """Return journal entries, optionally limited to last N."""
+    entries = _read_journal()
+    if last_n:
+        return entries[-last_n:]
+    return entries
+
+
+def export_journal_text() -> str:
+    """Export entire journal as readable text."""
+    entries = _read_journal()
+    lines = ["═══ ECHOES IN THE BACKLIGHT — SOUL JOURNAL ═══\n"]
+    for e in entries:
+        role = "YOU" if e.get("role") == "player" else "ECHO"
+        ts = e.get("timestamp", "")
+        text = e.get("text", "")
+        lines.append(f"[{ts}] {role}: {text}")
+    lines.append(f"\nTotal messages: {len(entries)}")
+    lines.append("═══════════════════════════════════════════")
+    return "\n".join(lines)
 
 
 # ── System prompt builder ──────────────────────────────────────────
@@ -95,7 +117,7 @@ HARD RULES (never break these):
 def build_system_prompt(journal_context: str = "") -> str:
     """
     Build the full system prompt from traits + core rules + journal context.
-    This is injected into every Gemini call.
+    Traits are reloaded from gemini_traits.txt every time.
     """
     traits = _load_traits()
     prompt = CORE_PROMPT
@@ -112,22 +134,38 @@ def build_system_prompt(journal_context: str = "") -> str:
     return prompt
 
 
-# ── Gemini API call ────────────────────────────────────────────────
+# ── Journal context for AI ─────────────────────────────────────────
 
-def _get_model():
-    """Lazy-load the Gemini model."""
-    import google.generativeai as genai
+def _load_journal_context(last_n: int = 5) -> str:
+    """Load the last N exchanges from journal for context."""
+    entries = _read_journal()
+    if not entries:
+        return ""
+    recent = entries[-last_n:] if len(entries) > last_n else entries
+    lines = ["MEMORY CONTEXT (recent exchanges):"]
+    for entry in recent:
+        role = "Player" if entry.get("role") == "player" else "Echo"
+        text = entry.get("text", "")
+        lines.append(f"  [{role}]: {text}")
+    return "\n".join(lines)
+
+
+# ── Gemini API call using google.genai ─────────────────────────────
+
+_client = None
+
+
+def _get_client():
+    """Lazy-load the Gemini client using google.genai."""
+    global _client
+    if _client is not None:
+        return _client
+    from google import genai
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         raise ValueError("GEMINI_API_KEY not set in .env")
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel(
-        "gemini-2.0-flash",
-        generation_config=genai.GenerationConfig(
-            temperature=0.92,
-            max_output_tokens=150,
-        ),
-    )
+    _client = genai.Client(api_key=api_key)
+    return _client
 
 
 def send_to_echo(player_input: str, player_name: str = "friend") -> dict:
@@ -135,7 +173,9 @@ def send_to_echo(player_input: str, player_name: str = "friend") -> dict:
     Send player input to Echo and get back the reply.
     Returns {"line1": str, "line2": str} — ready for 1602A display.
     """
-    model = _get_model()
+    from google.genai import types
+
+    client = _get_client()
 
     # build context
     recent_ctx = _load_journal_context(last_n=5)
@@ -145,18 +185,19 @@ def send_to_echo(player_input: str, player_name: str = "friend") -> dict:
 
     system_prompt = build_system_prompt(full_ctx)
 
-    # create chat with system prompt
-    chat = model.start_chat(history=[])
-    # inject system prompt as first message
-    chat.send_message(system_prompt)
+    # generate response with system instruction
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=player_input,
+        config=types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            temperature=0.92,
+            max_output_tokens=150,
+        ),
+    )
 
-    # send player input
-    response = chat.send_message(player_input)
-    raw = response.text.strip()
-
-    # parse JSON response
+    raw = response.text.strip() if response.text else ""
     line1, line2 = _parse_response(raw, player_input)
-
     return {"line1": line1, "line2": line2}
 
 
@@ -171,81 +212,21 @@ def _parse_response(raw: str, player_input: str) -> tuple[str, str]:
         if raw.endswith("```"):
             raw = raw[: raw.rfind("```")]
 
+    # try JSON parse
     try:
         data = json.loads(raw)
         line1 = str(data.get("line1", ""))[:16]
         line2 = str(data.get("line2", ""))[:16]
-        return line1, line2
-    except (json.JSONDecodeError, KeyError):
+        if line1:
+            return line1, line2
+    except (json.JSONDecodeError, KeyError, TypeError):
         pass
 
-    # fallback: try to extract from text
+    # fallback: try to extract lines from text
     lines = [l.strip() for l in raw.split("\n") if l.strip()]
     line1 = (lines[0] if len(lines) > 0 else "…")[:16]
     line2 = (lines[1] if len(lines) > 1 else "")[:16]
     return line1, line2
-
-
-# ── Journal persistence ────────────────────────────────────────────
-
-def save_to_journal(role: str, text: str) -> None:
-    """Append a message to echoes_journal.json."""
-    import time
-    entries = []
-    if os.path.exists(JOURNAL_PATH):
-        try:
-            with open(JOURNAL_PATH, "r", encoding="utf-8") as f:
-                entries = json.load(f)
-        except (json.JSONDecodeError, KeyError):
-            entries = []
-
-    entries.append({
-        "role": role,
-        "text": text,
-        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
-    })
-
-    with open(JOURNAL_PATH, "w", encoding="utf-8") as f:
-        json.dump(entries, f, indent=2, ensure_ascii=False)
-
-
-def get_journal_count() -> int:
-    """Return total number of messages in the journal."""
-    if not os.path.exists(JOURNAL_PATH):
-        return 0
-    try:
-        with open(JOURNAL_PATH, "r", encoding="utf-8") as f:
-            return len(json.load(f))
-    except (json.JSONDecodeError, KeyError):
-        return 0
-
-
-def get_journal_entries(last_n: int | None = None) -> list[dict]:
-    """Return journal entries, optionally limited to last N."""
-    if not os.path.exists(JOURNAL_PATH):
-        return []
-    try:
-        with open(JOURNAL_PATH, "r", encoding="utf-8") as f:
-            entries = json.load(f)
-        if last_n:
-            return entries[-last_n:]
-        return entries
-    except (json.JSONDecodeError, KeyError):
-        return []
-
-
-def export_journal_text() -> str:
-    """Export entire journal as readable text."""
-    entries = get_journal_entries()
-    lines = ["═══ ECHOES IN THE BACKLIGHT — SOUL JOURNAL ═══\n"]
-    for i, e in enumerate(entries, 1):
-        role = "YOU" if e.get("role") == "player" else "ECHO"
-        ts = e.get("timestamp", "")
-        text = e.get("text", "")
-        lines.append(f"[{ts}] {role}: {text}")
-    lines.append(f"\nTotal messages: {len(entries)}")
-    lines.append("═══════════════════════════════════════════")
-    return "\n".join(lines)
 
 
 # ── Quick test ─────────────────────────────────────────────────────

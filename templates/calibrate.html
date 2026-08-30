@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% block title %}Calibrate — Echoes{% endblock %}
+
+{% block content %}
+<div class="nav">
+  <a href="/">game</a>
+  <a href="/journal">journal</a>
+  <a href="/config">config</a>
+  <a class="active" href="/calibrate">calibrate</a>
+</div>
+
+<!-- ── LCD Test ── -->
+<div class="sec">LCD Display Test</div>
+<label>Test Line 1</label>
+<input type="text" id="line1" value="ECHOES IN THE" maxlength="16">
+<label>Test Line 2</label>
+<input type="text" id="line2" value="BACKLIGHT" maxlength="16">
+<div style="display:flex; gap:8px;">
+  <button onclick="showOnLCD()" style="flex:2;">Show on LCD</button>
+  <button class="sec" onclick="clearLCD()" style="flex:1; margin-top:0;">Clear</button>
+</div>
+
+<!-- ── LCD Preview ── -->
+<div class="lcd-box" id="lcd-preview">
+  <div id="lcd-r0">ECHOES IN THE</div>
+  <div id="lcd-r1">BACKLIGHT</div>
+</div>
+
+<!-- ── Backlight Control ── -->
+<div class="sec">Backlight</div>
+<div style="display:flex; gap:8px;">
+  <button class="sec" onclick="blOn()">ON</button>
+  <button class="sec" onclick="blOff()">OFF</button>
+  <button class="sec" onclick="blBreathing()">Breathe</button>
+</div>
+
+<!-- ── Feedback Effects ── -->
+<div class="sec">Feedback Effects</div>
+<div style="display:flex; gap:8px;">
+  <button class="sec" onclick="modemTone()">Modem Tone</button>
+  <button class="sec" onclick="scrollTest()">Scroll Test</button>
+  <button class="sec" onclick="ghostTest()">Ghost Message</button>
+</div>
+
+<!-- ── Touch Sensor ── -->
+<div class="sec">Touch Sensor (GPIO27)</div>
+<p class="ht">Tap the sensor to test — single tap scrolls, double tap selects</p>
+
+<div style="display:flex; gap:8px; margin-top:8px;">
+  <button class="sec" onclick="touchPing()" style="flex:1; margin-top:0;">Ping Sensor</button>
+  <button class="sec" onclick="touchCalibrate()" style="flex:1; margin-top:0;">Calibrate</button>
+</div>
+
+<div class="st" id="touch-status">waiting for tap...</div>
+
+<!-- Touch event counter -->
+<div style="display:flex; gap:16px; justify-content:center; margin-top:10px;">
+  <div style="text-align:center;">
+    <div style="font-size:20px; color:var(--ac);" id="tap-count">0</div>
+    <div class="ht">taps</div>
+  </div>
+  <div style="text-align:center;">
+    <div style="font-size:20px; color:var(--ok);" id="double-count">0</div>
+    <div class="ht">double-taps</div>
+  </div>
+  <div style="text-align:center;">
+    <div style="font-size:20px; color:var(--dm);" id="last-type">—</div>
+    <div class="ht">last type</div>
+  </div>
+</div>
+
+<!-- ── Touch Sensitivity ── -->
+<div class="sec">Touch Sensitivity</div>
+<label>Double-tap window (ms)</label>
+<input type="number" id="dbl-window" value="350" min="100" max="1000" step="50">
+<p class="ht">Lower = faster double-tap needed. Default: 350ms</p>
+
+<label>Bounce time (ms)</label>
+<input type="number" id="bounce-time" value="50" min="10" max="200" step="10">
+<p class="ht">Debounce filter. Default: 50ms</p>
+
+<button onclick="saveTouchConfig()">Save Touch Settings</button>
+
+<!-- ── Pin Status ── -->
+<div class="sec">Pin Status</div>
+<div class="st" id="pin-status">checking pins...</div>
+
+<!-- ── Emergency ── -->
+<div class="sec">Emergency</div>
+<button class="dng" onclick="emergencyReset()">Emergency Reset</button>
+<p class="ht">Clears display, stops all activity, resets touch state.</p>
+
+<div class="st" id="status"></div>
+
+<script>
+  let tapCount = 0;
+  let doubleCount = 0;
+
+  function setStatus(msg, cls) {
+    const s = document.getElementById('status');
+    s.textContent = msg;
+    s.className = 'st ' + (cls || '');
+  }
+
+  function updateLCDPreview() {
+    document.getElementById('lcd-r0').textContent =
+      document.getElementById('line1').value.padEnd(16).substring(0, 16);
+    document.getElementById('lcd-r1').textContent =
+      document.getElementById('line2').value.padEnd(16).substring(0, 16);
+  }
+
+  document.getElementById('line1').addEventListener('input', updateLCDPreview);
+  document.getElementById('line2').addEventListener('input', updateLCDPreview);
+
+  async function apiCall(url, body) {
+    try {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body || {})
+      });
+      return await r.json();
+    } catch(e) {
+      return {error: e.message};
+    }
+  }
+
+  // ── LCD ──
+  async function showOnLCD() {
+    updateLCDPreview();
+    const j = await apiCall('/api/show', {
+      line1: document.getElementById('line1').value,
+      line2: document.getElementById('line2').value
+    });
+    setStatus(j.ok ? '✓ displayed on LCD' : '✗ ' + (j.error || 'failed'), j.ok ? 'ok' : 'er');
+  }
+
+  async function clearLCD() {
+    await apiCall('/api/clear');
+    document.getElementById('lcd-r0').textContent = '';
+    document.getElementById('lcd-r1').textContent = '';
+    setStatus('✓ LCD cleared', 'ok');
+  }
+
+  // ── Backlight ──
+  async function blOn() {
+    const j = await apiCall('/api/backlight', {on: true});
+    setStatus(j.ok ? '✓ backlight ON' : '✗ ' + j.error, j.ok ? 'ok' : 'er');
+  }
+
+  async function blOff() {
+    const j = await apiCall('/api/backlight', {on: false});
+    setStatus(j.ok ? '✓ backlight OFF' : '✗ ' + j.error, j.ok ? 'ok' : 'er');
+  }
+
+  async function blBreathing() {
+    const j = await apiCall('/api/breathing', {cycles: 3});
+    setStatus(j.ok ? '✓ breathing effect started' : '✗ ' + j.error, j.ok ? 'ok' : 'er');
+  }
+
+  // ── Effects ──
+  async function modemTone() {
+    const j = await apiCall('/api/modem');
+    setStatus(j.ok ? '✓ modem tone played' : '✗ ' + j.error, j.ok ? 'ok' : 'er');
+  }
+
+  async function scrollTest() {
+    const j = await apiCall('/api/scroll/test', {
+      line1: "... I'm still",
+      line2: "here... can you"
+    });
+    setStatus(j.ok ? '✓ scroll test sent' : '✗ ' + j.error, j.ok ? 'ok' : 'er');
+  }
+
+  async function ghostTest() {
+    const j = await apiCall('/api/ghost/test', {text: 'can you hear me'});
+    setStatus(j.ok ? '✓ ghost message sent' : '✗ ' + j.error, j.ok ? 'ok' : 'er');
+  }
+
+  // ── Touch ──
+  async function touchPing() {
+    const j = await apiCall('/api/touch/test', {action: 'ping'});
+    if (j.ok) {
+      setStatus(`✓ sensor alive — GPIO${j.touch_pin}, LED GPIO${j.led_pin}`, 'ok');
+    } else {
+      setStatus('✗ ' + (j.error || 'sensor not initialized'), 'er');
+    }
+  }
+
+  async function touchCalibrate() {
+    const dw = parseInt(document.getElementById('dbl-window').value) || 350;
+    const bt = parseInt(document.getElementById('bounce-time').value) || 50;
+    const j = await apiCall('/api/touch/calibrate', {
+      double_window: dw / 1000,
+      bounce_time: bt
+    });
+    setStatus(j.ok
+      ? `✓ calibrated — window: ${dw}ms, bounce: ${bt}ms`
+      : '✗ ' + (j.error || 'failed'), j.ok ? 'ok' : 'er');
+  }
+
+  async function saveTouchConfig() {
+    await touchCalibrate();
+  }
+
+  // Poll touch events via status endpoint
+  async function pollTouch() {
+    try {
+      const r = await fetch('/api/status');
+      const j = await r.json();
+      const ts = document.getElementById('touch-status');
+      ts.textContent = j.touch_ready
+        ? '✓ sensor active on GPIO27'
+        : '✗ sensor not ready';
+      ts.className = 'st ' + (j.touch_ready ? 'ok' : 'er');
+      document.getElementById('pin-status').innerHTML = [
+        'LCD: ' + (j.lcd_ready ? '<span style="color:var(--ok)">ready</span>' : '<span style="color:var(--dg)">not ready</span>'),
+        'Touch: ' + (j.touch_ready ? '<span style="color:var(--ok)">ready</span>' : '<span style="color:var(--dg)">not ready</span>'),
+        'Journal: ' + j.journal_count + ' entries',
+        'Sends: ' + j.send_count,
+      ].join(' · ');
+    } catch(e) {}
+  }
+
+  async function emergencyReset() {
+    if (!confirm('Emergency reset? This stops everything.')) return;
+    const j = await apiCall('/api/emergency');
+    setStatus(j.ok ? '✓ emergency reset complete' : '✗ ' + j.error, j.ok ? 'ok' : 'er');
+  }
+
+  // ── Init ──
+  updateLCDPreview();
+  pollTouch();
+  setInterval(pollTouch, 3000);
+</script>
+{% endblock %}

@@ -6,127 +6,89 @@
   <a href="/">game</a>
   <a class="active" href="/journal">journal</a>
   <a href="/config">config</a>
+  <a href="/calibrate">calibrate</a>
 </div>
 
-<div class="section-title" style="margin-top:0;">Soul Journal</div>
-<p style="font-size:11px; color:var(--dim); text-align:center; margin-bottom:16px;">
-  Every word you've spoken. Every echo it answered.<br>
-  Lock a memory to make it permanent. The AI will remember it forever.
+<div class="sec" style="margin-top:0;">Soul Journal</div>
+<p class="ht" style="margin-bottom:16px;">
+  Every word you've spoken. Every echo it answered.
 </p>
 
-<!-- Search -->
-<label>Search memories</label>
+<!-- Actions -->
 <div style="display:flex; gap:6px;">
-  <input type="text" id="search-q" placeholder="find an old echo..." style="flex:1;">
-  <button class="secondary" onclick="searchMemory()" style="flex:none; width:80px; margin-top:0;">Search</button>
+  <button class="sec" onclick="loadRecent()" style="flex:1; margin-top:0;">Recent</button>
+  <button class="sec" onclick="loadAll()" style="flex:1; margin-top:0;">All</button>
+  <button class="sec" onclick="exportAll()" style="flex:1; margin-top:0;">Export</button>
 </div>
 
-<!-- Actions -->
-<div style="display:flex; gap:6px; margin-top:12px;">
-  <button class="secondary" onclick="loadRecent()" style="flex:1; margin-top:0;">Recent</button>
-  <button class="secondary" onclick="loadAll()" style="flex:1; margin-top:0;">All Slots</button>
-  <button class="secondary" onclick="exportAll()" style="flex:1; margin-top:0;">Export</button>
-</div>
+<!-- Entry count -->
+<div class="st" id="entry-count" style="margin-top:8px;">loading...</div>
 
 <!-- Memory list -->
-<div id="memory-list" style="margin-top:16px;">
-  <div class="status">loading...</div>
-</div>
+<div id="memory-list" style="margin-top:12px;"></div>
 
 <script>
-  async function loadRecent() {
-    const list = document.getElementById('memory-list');
-    list.innerHTML = '<div class="status">loading...</div>';
-    try {
-      const r = await fetch('/api/memory/recent?n=20');
-      const j = await r.json();
-      renderMemories(j.memories);
-    } catch(e) {
-      list.innerHTML = '<div class="status err">error: ' + e.message + '</div>';
-    }
-  }
-
-  async function loadAll() {
-    const list = document.getElementById('memory-list');
-    list.innerHTML = '<div class="status">loading...</div>';
-    try {
-      const r = await fetch('/api/memory/recent?n=100');
-      const j = await r.json();
-      renderMemories(j.memories);
-    } catch(e) {
-      list.innerHTML = '<div class="status err">error: ' + e.message + '</div>';
-    }
-  }
-
-  async function searchMemory() {
-    const q = document.getElementById('search-q').value.trim();
-    if (!q) return loadRecent();
-    const list = document.getElementById('memory-list');
-    list.innerHTML = '<div class="status">searching...</div>';
-    try {
-      const r = await fetch('/api/memory/search?q=' + encodeURIComponent(q));
-      const j = await r.json();
-      renderMemories(j.memories);
-    } catch(e) {
-      list.innerHTML = '<div class="status err">error: ' + e.message + '</div>';
-    }
-  }
-
-  function renderMemories(memories) {
-    const list = document.getElementById('memory-list');
-    if (!memories || memories.length === 0) {
-      list.innerHTML = '<div class="status">no memories found</div>';
-      return;
-    }
-    let html = '';
-    for (const mem of memories) {
-      const slot = mem.slot;
-      const isLocked = mem.entries.some(e => e.locked);
-      const lockIcon = isLocked ? ' 🔒' : '';
-      html += '<div class="journal-slot" style="margin-bottom:12px; padding:10px; background:var(--surface); border:1px solid ' + (isLocked ? 'var(--ok)' : 'var(--border)') + '; border-radius:3px;">';
-      html += '<div style="display:flex; justify-content:space-between; align-items:center;">';
-      html += '<span style="font-size:10px; color:var(--dim); text-transform:uppercase; letter-spacing:1px;">Slot ' + slot + lockIcon + '</span>';
-      html += '<button class="secondary" onclick="toggleLock(' + slot + ')" style="width:auto; padding:4px 10px; margin:0; font-size:9px;">' + (isLocked ? 'Unlock' : 'Lock') + '</button>';
-      html += '</div>';
-      for (const entry of mem.entries) {
-        const role = entry.role === 'player' ? 'YOU' : 'ECHO';
-        const color = entry.role === 'player' ? 'var(--text)' : 'var(--accent)';
-        const ts = entry.created_at ? entry.created_at.split('T')[1] || '' : '';
-        html += '<div style="margin-top:8px; font-size:12px;">';
-        html += '<span style="color:var(--dim); font-size:9px;">[' + ts + ']</span> ';
-        html += '<span style="color:var(--dim); font-size:10px;">' + role + ':</span> ';
-        html += '<span style="color:' + color + ';">' + escapeHtml(entry.text) + '</span>';
-        html += '</div>';
-      }
-      html += '</div>';
-    }
-    list.innerHTML = html;
-  }
-
-  async function toggleLock(slot) {
-    try {
-      const r = await fetch('/api/memory/lock', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({slot: slot})
-      });
-      const j = await r.json();
-      // reload current view
-      loadRecent();
-    } catch(e) {}
-  }
-
-  function exportAll() {
-    window.open('/api/memory/export', '_blank');
-  }
-
   function escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
   }
 
-  // load on start
+  async function loadRecent() {
+    const list = document.getElementById('memory-list');
+    list.innerHTML = '<div class="st">loading...</div>';
+    try {
+      const r = await fetch('/api/journal/recent?n=20');
+      const j = await r.json();
+      renderEntries(j.entries);
+    } catch(e) {
+      list.innerHTML = '<div class="st er">error: ' + e.message + '</div>';
+    }
+  }
+
+  async function loadAll() {
+    const list = document.getElementById('memory-list');
+    list.innerHTML = '<div class="st">loading...</div>';
+    try {
+      const r = await fetch('/api/journal/recent?n=200');
+      const j = await r.json();
+      renderEntries(j.entries);
+    } catch(e) {
+      list.innerHTML = '<div class="st er">error: ' + e.message + '</div>';
+    }
+  }
+
+  function renderEntries(entries) {
+    const list = document.getElementById('memory-list');
+    const countEl = document.getElementById('entry-count');
+
+    if (!entries || entries.length === 0) {
+      list.innerHTML = '<div class="st">no memories yet — speak to Echo</div>';
+      countEl.textContent = '0 entries';
+      return;
+    }
+
+    countEl.textContent = entries.length + ' entries';
+
+    let html = '';
+    for (const entry of entries) {
+      const role = entry.role === 'player' ? 'YOU' : 'ECHO';
+      const color = entry.role === 'player' ? 'var(--tx)' : 'var(--ac)';
+      const ts = entry.timestamp ? entry.timestamp.split('T')[1] || '' : '';
+      html += '<div style="padding:10px 12px; margin-bottom:4px; background:var(--sf); border:1px solid var(--bd); border-radius:3px;">';
+      html += '<span style="color:var(--dm); font-size:9px;">[' + escapeHtml(ts) + ']</span> ';
+      html += '<span style="color:var(--dm); font-size:10px;">' + role + ':</span> ';
+      html += '<span style="color:' + color + '; font-size:12px;">' + escapeHtml(entry.text) + '</span>';
+      html += '</div>';
+    }
+    list.innerHTML = html;
+  }
+
+  function exportAll() {
+    window.open('/api/journal/export', '_blank');
+  }
+
+  // Load on start
   loadRecent();
 </script>
 {% endblock %}

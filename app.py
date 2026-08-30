@@ -1,6 +1,6 @@
 """
 Echoes in the Backlight — Flask backend.
-Calls gemini_service.py for all AI. Never uses any other AI module.
+Calls gemini_service.py for ALL AI. Never uses game_engine.py or any other AI module.
 Phase 1: pin calibration, touch sensor, core game loop.
 """
 
@@ -176,7 +176,8 @@ def _ghost_loop():
     while not _ghost_stop.is_set():
         wait = random.uniform(30, 60)
         for _ in range(int(wait * 10)):
-            if _ghost_stop.is_set(): return
+            if _ghost_stop.is_set():
+                return
             time.sleep(0.1)
         if lcd and not _ghost_stop.is_set():
             msgs = ["...", "I'm waiting...", "can you hear me", "stay.",
@@ -192,7 +193,10 @@ def _start_ghosts():
     _ghost_thread.start()
 
 
-# ── Web routes ─────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
+#  WEB ROUTES — Pages
+# ═══════════════════════════════════════════════════════════════════
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -203,12 +207,36 @@ def config_page():
     return render_template("config.html", config=config)
 
 
+@app.route("/calibrate")
+def calibrate_page():
+    return render_template("calibrate.html", config=config)
+
+
 @app.route("/journal")
 def journal_page():
     return render_template("journal.html")
 
 
-# ── API: config ────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
+#  API: Status
+# ═══════════════════════════════════════════════════════════════════
+
+@app.route("/api/status", methods=["GET"])
+def api_status():
+    return jsonify({
+        "mode": config.get("mode", "options"),
+        "lcd_ready": lcd is not None and lcd._initialized,
+        "touch_ready": touch is not None,
+        "send_count": config.get("send_count", 0),
+        "journal_count": echo_ai.get_journal_count(),
+        "player_name": config.get("player_name", "friend"),
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  API: Config
+# ═══════════════════════════════════════════════════════════════════
+
 @app.route("/api/config", methods=["GET"])
 def api_get_config():
     return jsonify(config)
@@ -225,7 +253,10 @@ def api_set_config():
     return jsonify({"ok": True})
 
 
-# ── API: calibration ──────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
+#  API: Calibration & Test
+# ═══════════════════════════════════════════════════════════════════
+
 @app.route("/api/test", methods=["POST"])
 def api_test_display():
     body = request.get_json(force=True) if request.data else {}
@@ -246,7 +277,102 @@ def api_backlight():
     return jsonify({"error": "LCD not initialized"}), 500
 
 
-# ── API: game ──────────────────────────────────────────────────────
+@app.route("/api/clear", methods=["POST"])
+def api_clear():
+    if lcd:
+        lcd.clear()
+        return jsonify({"ok": True})
+    return jsonify({"error": "LCD not initialized"}), 500
+
+
+@app.route("/api/show", methods=["POST"])
+def api_show():
+    """Show arbitrary 2-line text on LCD."""
+    body = request.get_json(force=True)
+    line1 = body.get("line1", "")[:16]
+    line2 = body.get("line2", "")[:16]
+    if lcd:
+        lcd.show(line1, line2)
+        return jsonify({"ok": True, "line1": line1, "line2": line2})
+    return jsonify({"error": "LCD not initialized"}), 500
+
+
+@app.route("/api/touch/test", methods=["POST"])
+def api_touch_test():
+    """Register a test callback for touch sensor — returns event info."""
+    body = request.get_json(force=True) if request.data else {}
+    action = body.get("action", "ping")
+    if action == "ping" and touch:
+        # flash LED to confirm touch is alive
+        if lcd:
+            lcd.flash_led(0.15)
+        return jsonify({"ok": True, "touch_pin": touch.pin, "led_pin": touch.led_pin})
+    return jsonify({"ok": False, "error": "touch sensor not initialized"}), 500
+
+
+@app.route("/api/touch/calibrate", methods=["POST"])
+def api_touch_calibrate():
+    """Save touch sensitivity settings."""
+    body = request.get_json(force=True)
+    double_window = body.get("double_window", 0.35)
+    bounce_time = body.get("bounce_time", 50)
+    if touch:
+        touch.DOUBLE_WINDOW = double_window
+        return jsonify({
+            "ok": True,
+            "double_window": double_window,
+            "bounce_time": bounce_time,
+        })
+    return jsonify({"ok": False, "error": "touch sensor not initialized"}), 500
+
+
+@app.route("/api/scroll/test", methods=["POST"])
+def api_scroll_test():
+    """Test scroll display with sample text."""
+    body = request.get_json(force=True) if request.data else {}
+    line1 = body.get("line1", "... I'm still")[:16]
+    line2 = body.get("line2", "here... can you")[:16]
+    _push_echo(line1, line2)
+    return jsonify({"ok": True, "line1": line1, "line2": line2})
+
+
+@app.route("/api/breathing", methods=["POST"])
+def api_breathing():
+    """Test breathing backlight effect."""
+    body = request.get_json(force=True) if request.data else {}
+    cycles = body.get("cycles", 3)
+    if lcd:
+        t = threading.Thread(target=lcd.bl_breathing, args=(cycles, 0.04, _scroll_stop), daemon=True)
+        t.start()
+        return jsonify({"ok": True, "cycles": cycles})
+    return jsonify({"error": "LCD not initialized"}), 500
+
+
+@app.route("/api/modem", methods=["POST"])
+def api_modem():
+    """Play modem connect tone."""
+    if lcd:
+        lcd.modem_tone()
+        return jsonify({"ok": True})
+    return jsonify({"error": "LCD not initialized"}), 500
+
+
+@app.route("/api/ghost/test", methods=["POST"])
+def api_ghost_test():
+    """Test ghost message display."""
+    body = request.get_json(force=True) if request.data else {}
+    text = body.get("text", "can you hear me")[:16]
+    _stop_bg()
+    t = threading.Thread(target=lcd.show_ghost, args=(text, _scroll_stop), daemon=True) if lcd else None
+    if t:
+        t.start()
+    return jsonify({"ok": True, "text": text})
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  API: Game
+# ═══════════════════════════════════════════════════════════════════
+
 @app.route("/api/send", methods=["POST"])
 def api_send():
     body = request.get_json(force=True)
@@ -275,6 +401,19 @@ def api_send():
     return jsonify(reply)
 
 
+@app.route("/api/mirror", methods=["POST"])
+def api_mirror():
+    body = request.get_json(force=True)
+    text = body.get("text", "").strip()
+    if not text:
+        return jsonify({"error": "empty"}), 400
+    _stop_bg()
+    if lcd:
+        t = threading.Thread(target=lcd.mirror_text, args=(text,), daemon=True)
+        t.start()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/options", methods=["GET"])
 def api_get_options():
     with _lock:
@@ -289,23 +428,15 @@ def api_set_mode():
     save_config(config)
     _stop_bg()
     if mode in ("options", "phone"):
-        if lcd: lcd.show_home()
+        if lcd:
+            lcd.show_home()
     return jsonify({"mode": mode})
 
 
-@app.route("/api/mirror", methods=["POST"])
-def api_mirror():
-    body = request.get_json(force=True)
-    text = body.get("text", "").strip()
-    if not text:
-        return jsonify({"error": "empty"}), 400
-    _stop_bg()
-    if lcd:
-        lcd.mirror_text(text)
-    return jsonify({"ok": True})
+# ═══════════════════════════════════════════════════════════════════
+#  API: Journal
+# ═══════════════════════════════════════════════════════════════════
 
-
-# ── API: journal ──────────────────────────────────────────────────
 @app.route("/api/journal/recent", methods=["GET"])
 def api_journal_recent():
     n = request.args.get("n", 20, type=int)
@@ -320,7 +451,15 @@ def api_journal_export():
                     headers={"Content-Disposition": "attachment; filename=soul_journal.txt"})
 
 
-# ── API: reset / emergency ────────────────────────────────────────
+@app.route("/api/journal/count", methods=["GET"])
+def api_journal_count():
+    return jsonify({"count": echo_ai.get_journal_count()})
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  API: Reset / Emergency
+# ═══════════════════════════════════════════════════════════════════
+
 @app.route("/api/reset", methods=["POST"])
 def api_reset():
     _stop_bg()
@@ -344,18 +483,10 @@ def api_emergency():
     return jsonify({"ok": True})
 
 
-@app.route("/api/status", methods=["GET"])
-def api_status():
-    return jsonify({
-        "mode": config.get("mode", "options"),
-        "lcd_ready": lcd is not None and lcd._initialized,
-        "send_count": config.get("send_count", 0),
-        "journal_count": echo_ai.get_journal_count(),
-        "player_name": config.get("player_name", "friend"),
-    })
+# ═══════════════════════════════════════════════════════════════════
+#  Main
+# ═══════════════════════════════════════════════════════════════════
 
-
-# ── Main ───────────────────────────────────────────────────────────
 if __name__ == "__main__":
     init_all()
     _start_ghosts()
