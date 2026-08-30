@@ -153,7 +153,10 @@ def _handle_player_input(text):
     """Process player input through gemini_service, save to journal, display."""
     echo_ai.save_to_journal("player", text)
     name = config.get("player_name", "friend")
-    reply = echo_ai.send_to_echo(text, player_name=name)
+    try:
+        reply = echo_ai.send_to_echo(text, player_name=name)
+    except Exception as e:
+        reply = {"line1": "the signal broke", "line2": "try again..."}
 
     full_reply = (reply["line1"] + " " + reply["line2"]).strip()
     echo_ai.save_to_journal("narrator", full_reply)
@@ -495,7 +498,13 @@ def api_send():
 
     echo_ai.save_to_journal("player", text)
     name = config.get("player_name", "friend")
-    reply = echo_ai.send_to_echo(text, player_name=name)
+
+    try:
+        reply = echo_ai.send_to_echo(text, player_name=name)
+    except Exception as e:
+        # Gemini API failed — return a melancholic fallback
+        reply = {"line1": "the signal broke", "line2": str(e)[:16]}
+
     full_reply = (reply["line1"] + " " + reply["line2"]).strip()
     echo_ai.save_to_journal("narrator", full_reply)
 
