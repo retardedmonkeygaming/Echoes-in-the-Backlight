@@ -1,21 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Config — Echoes{% endblock %}
-
+{% block title %}Room Settings - The Last Apartment{% endblock %}
 {% block content %}
 <div class="nav">
-  <a href="/">game</a>
-  <a href="/journal">journal</a>
-  <a class="active" href="/config">config</a>
+  <a href="/">the room</a>
+  <a href="/journal">memories</a>
+  <a class="active" href="/config">settings</a>
   <a href="/calibrate">calibrate</a>
 </div>
-
-<!-- Player Name -->
-<label>Player Name</label>
-<input type="text" id="player-name" placeholder="friend" value="{{ config.get('player_name', 'friend') }}">
-
-<!-- GPIO Pin Map -->
-<div class="sec">GPIO Pin Map (BCM)</div>
-
+<label>your name (ERIN will remember)</label>
+<input type="text" id="player-name" placeholder="visitor" value="{{ config.get('player_name', 'friend') }}">
+<div class="sec">Room Settings</div>
 <div class="grid">
   <div><label>RS</label><input type="number" id="pin_RS" value="{{ config.pin_map.RS }}"></div>
   <div><label>RW</label><input type="number" id="pin_RW" value="{{ config.pin_map.RW }}"></div>
@@ -27,107 +21,33 @@
   <div><label>D7</label><input type="number" id="pin_D7" value="{{ config.pin_map.D7 }}"></div>
   <div><label>Touch Sensor</label><input type="number" id="pin_TOUCH" value="{{ config.pin_map.TOUCH }}"></div>
   <div><label>Feedback LED</label><input type="number" id="pin_LED" value="{{ config.pin_map.get('LED', '') }}"></div>
-  <div><label>Buzzer (optional)</label><input type="number" id="pin_BUZZER" value="{{ config.pin_map.get('BUZZER', '') }}"></div>
+  <div><label>Buzzer</label><input type="number" id="pin_BUZZER" value="{{ config.pin_map.get('BUZZER', '') }}"></div>
 </div>
-
 <div class="grid" style="margin-top:8px;">
   <div><label>LCD Columns</label><input type="number" id="cols" value="{{ config.get('cols', 16) }}"></div>
   <div><label>LCD Rows</label><input type="number" id="rows" value="{{ config.get('rows', 2) }}"></div>
 </div>
-
-<button onclick="saveConfig()">Save &amp; Reinit Hardware</button>
-
-<!-- Quick Test -->
-<div class="sec">Quick Test</div>
-<label>Test String</label>
-<input type="text" id="testText" value="Hello, 1602A" maxlength="32">
-<div style="display:flex; gap:8px;">
-  <button onclick="testDisplay()" style="flex:2;">Test Display</button>
-  <button class="sec" onclick="toggleBacklight(true)" style="flex:1; margin-top:0;">BL ON</button>
-  <button class="sec" onclick="toggleBacklight(false)" style="flex:1; margin-top:0;">BL OFF</button>
-</div>
-
-<!-- Emergency -->
+<button onclick="saveConfig()">save settings</button>
 <div class="sec">Emergency</div>
-<button class="dng" onclick="emergencyReset()">Emergency Reset</button>
-<p class="ht">Clears display, stops all activity, resets touch state.</p>
-
-<!-- Status -->
+<button class="dng" onclick="emergencyReset()">close the door and leave the light on</button>
+<p class="ht">stops everything, clears the screen</p>
 <div class="st" id="status"></div>
-
 <script>
-  function setStatus(msg, cls) {
-    const s = document.getElementById('status');
-    s.textContent = msg;
-    s.className = 'st ' + (cls || '');
-  }
-
+  function setStatus(m, c) { const s = document.getElementById('status'); s.textContent = m; s.className = 'st ' + (c||''); }
   async function saveConfig() {
-    const pinKeys = ['RS','RW','E','BACKLIGHT','D4','D5','D6','D7','TOUCH','LED','BUZZER'];
-    const pinMap = {};
-    pinKeys.forEach(k => {
-      const v = document.getElementById('pin_'+k).value.trim();
-      pinMap[k] = v === '' ? null : parseInt(v);
-    });
-    const body = {
-      player_name: document.getElementById('player-name').value.trim() || 'friend',
-      pin_map: pinMap,
-      cols: parseInt(document.getElementById('cols').value),
-      rows: parseInt(document.getElementById('rows').value),
-    };
+    const keys = ['RS','RW','E','BACKLIGHT','D4','D5','D6','D7','TOUCH','LED','BUZZER'];
+    const pm = {};
+    keys.forEach(k => { const v = document.getElementById('pin_'+k).value.trim(); pm[k] = v === '' ? null : parseInt(v); });
+    const body = { player_name: document.getElementById('player-name').value.trim() || 'friend', pin_map: pm,
+      cols: parseInt(document.getElementById('cols').value), rows: parseInt(document.getElementById('rows').value) };
     setStatus('saving...', '');
-    try {
-      const r = await fetch('/api/config', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body)
-      });
-      const j = await r.json();
-      if (j.ok) setStatus('✓ saved — hardware reinitialized', 'ok');
-      else setStatus('✗ ' + JSON.stringify(j), 'er');
-    } catch(e) {
-      setStatus('✗ ' + e.message, 'er');
-    }
+    try { const r = await fetch('/api/config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+      const j = await r.json(); if (j.ok) setStatus('saved', 'ok'); else setStatus('error', 'er');
+    } catch(e) { setStatus(e.message, 'er'); }
   }
-
-  async function testDisplay() {
-    const text = document.getElementById('testText').value;
-    setStatus('sending test pattern...', '');
-    try {
-      const r = await fetch('/api/test', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({text})
-      });
-      const j = await r.json();
-      if (j.ok) setStatus('✓ display should show: ' + j.text, 'ok');
-      else setStatus('✗ ' + j.error, 'er');
-    } catch(e) {
-      setStatus('✗ ' + e.message, 'er');
-    }
-  }
-
-  async function toggleBacklight(on) {
-    try {
-      await fetch('/api/backlight', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({on})
-      });
-      setStatus(on ? 'backlight ON' : 'backlight OFF', 'ok');
-    } catch(e) {
-      setStatus('✗ ' + e.message, 'er');
-    }
-  }
-
   async function emergencyReset() {
-    if (!confirm('Emergency reset? This stops everything.')) return;
-    try {
-      await fetch('/api/emergency', {method: 'POST'});
-      setStatus('✓ emergency reset complete', 'ok');
-    } catch(e) {
-      setStatus('✗ ' + e.message, 'er');
-    }
+    if (!confirm('Close the door and leave the light on for me?')) return;
+    try { await fetch('/api/emergency', {method:'POST'}); setStatus('done', 'ok'); } catch(e) { setStatus(e.message, 'er'); }
   }
 </script>
 {% endblock %}

@@ -1,72 +1,74 @@
 {% extends "base.html" %}
-{% block title %}Game — Echoes{% endblock %}
-
+{% block title %}The Last Apartment - ERIN{% endblock %}
 {% block content %}
 <div class="nav">
-  <a class="active" href="/">game</a>
-  <a href="/journal">journal</a>
-  <a href="/config">config</a>
+  <a class="active" href="/">the room</a>
+  <a href="/journal">memories</a>
+  <a href="/config">settings</a>
   <a href="/calibrate">calibrate</a>
 </div>
 
-<!-- Status -->
 <div class="st" id="status">initializing...</div>
 
-<!-- Signal bar -->
+<!-- ERIN whisper box (appears when idle) -->
+<div id="erin-whisper" style="display:none; margin-top:12px; padding:12px; background:var(--sf); border:1px solid var(--bd); border-radius:3px; text-align:center;">
+  <div style="font-size:11px; color:var(--ac); font-style:italic;">...</div>
+  <div id="erin-whisper-text" style="font-size:11px; color:var(--dm); margin-top:6px;"></div>
+</div>
+
+<!-- Signal -->
 <div style="text-align:center; margin-top:12px;">
-  <label style="margin-top:0; text-align:center;">Signal Strength</label>
+  <label style="margin-top:0;">Signal Strength</label>
   <div style="display:flex; gap:2px; justify-content:center; margin-top:6px;" id="signal"></div>
-  <div class="ht" id="send-count">0 sends</div>
-  <div id="onelast-badge" style="display:none; color:var(--dg); font-size:10px; margin-top:4px; letter-spacing:2px;">
-    ✦ ONE LAST LINE AWAITS ✦
+  <div class="ht" id="send-count">0 messages</div>
+  <div id="onelast-badge" style="display:none; color:var(--dg); font-size:9px; margin-top:4px; letter-spacing:2px; opacity:0.7;">
+    the light is almost gone...
   </div>
 </div>
 
-<!-- Mode selector — 9 modes -->
-<div class="sec">Input Mode</div>
+<!-- Mode selector -->
+<div class="sec">the room</div>
 <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-bottom:16px;">
-  <button id="m-phone" onclick="setMode('phone')">① Phone</button>
-  <button id="m-options" onclick="setMode('options')">② Touch</button>
-  <button id="m-mirror" onclick="setMode('mirror')">③ Mirror</button>
-  <button id="m-staticrain" onclick="setMode('staticrain')">④ Static</button>
-  <button id="m-loopback" onclick="setMode('loopback')">⑤ Loop</button>
-  <button id="m-memorydust" onclick="setMode('memorydust')">⑥ Dust</button>
-  <button id="m-onelastline" onclick="setMode('onelastline')">⑦ Last Line</button>
+  <button id="m-phone" onclick="setMode('phone')">speak</button>
+  <button id="m-options" onclick="setMode('options')">listen</button>
+  <button id="m-mirror" onclick="setMode('mirror')">mirror</button>
+  <button id="m-staticrain" onclick="setMode('staticrain')">static</button>
+  <button id="m-loopback" onclick="setMode('loopback')">loop</button>
+  <button id="m-memorydust" onclick="setMode('memorydust')">dust</button>
+  <button id="m-onelastline" onclick="setMode('onelastline')">last line</button>
 </div>
 
-<!-- Phone input panel (modes 1, 3) -->
+<!-- Phone panel -->
 <div id="panel-phone" style="display:none;">
-  <label>Your words</label>
-  <input type="text" id="input" placeholder="type something..." maxlength="200">
-  <button id="btn-send" onclick="sendText()">Send to 1602A</button>
+  <label>your words</label>
+  <input type="text" id="input" placeholder="say something to ERIN..." maxlength="200">
+  <button id="btn-send" onclick="sendText()">send to the screen</button>
 </div>
 
-<!-- Options panel (mode 2) -->
+<!-- Options panel -->
 <div id="panel-options" style="display:none;">
-  <label style="margin-top:0;">Current Options on Display</label>
-  <ul id="opt-list" style="list-style:none; margin-top:8px;">
-    <li style="padding:10px 12px; margin-bottom:4px; background:var(--sf); border:1px solid var(--bd); border-radius:3px; font-size:13px;">loading...</li>
-  </ul>
-  <p class="ht">tap GPIO27 to scroll · double-tap to choose</p>
+  <label style="margin-top:0;">ERIN waits for you to choose</label>
+  <ul id="opt-list" style="list-style:none; margin-top:8px;"></ul>
+  <p class="ht">tap to scroll, double-tap to choose</p>
 </div>
 
-<!-- Ambient panel (static, loop, dust, last line) -->
+<!-- Ambient panel -->
 <div id="panel-ambient" style="display:none;">
-  <div class="st" id="ambient-status">running in background...</div>
-  <button class="sec" onclick="stopAmbient()">Stop & Return</button>
+  <div class="st" id="ambient-status">the room is quiet...</div>
+  <button class="sec" onclick="stopAmbient()">return to the room</button>
 </div>
 
 <!-- LCD Preview -->
-<div class="sec">LCD Preview</div>
+<div class="sec">the screen</div>
 <div class="lcd-box" id="lcd-preview">
-  <div id="lcd-r0">ECHOES IN THE</div>
-  <div id="lcd-r1">BACKLIGHT</div>
+  <div id="lcd-r0">the light is on</div>
+  <div id="lcd-r1">are you there?</div>
 </div>
 
-<!-- Last Echo reply -->
+<!-- ERIN reply -->
 <div id="echo-box" style="display:none; margin-top:12px;">
-  <label>Last transmission</label>
-  <div class="lcd-box" id="echo-display" style="color:#9aaa4a;">
+  <label>ERIN said</label>
+  <div class="lcd-box" id="echo-display">
     <div id="echo-r0"></div>
     <div id="echo-r1"></div>
   </div>
@@ -74,21 +76,36 @@
 
 <!-- Actions -->
 <div style="display:flex; gap:8px; margin-top:16px;">
-  <button class="sec" onclick="refreshStatus()" style="flex:1; margin-top:0;">Refresh</button>
-  <button class="dng" onclick="resetGame()" style="flex:1; margin-top:0;">New Game</button>
+  <button class="sec" onclick="refreshStatus()" style="flex:1; margin-top:0;">refresh</button>
+  <button class="dng" onclick="resetGame()" style="flex:1; margin-top:0;">close the door</button>
 </div>
 
-<!-- Crash Recovery -->
 <div style="margin-top:8px;">
-  <button class="sec" onclick="recoverCrash()" style="font-size:9px; padding:6px;">
-    Recover from crash
+  <button class="sec" onclick="recoverCrash()" style="font-size:8px; padding:6px; opacity:0.5;">
+    recover from crash
   </button>
 </div>
 
 <script>
   let currentMode = 'options';
+  let lastSendTime = Date.now();
+  let idleTimer = null;
+  let whisperCount = 0;
 
-  // ── Signal meter ────────────────────────────────────────────
+  // ERIN idle whispers
+  const whispers = [
+    "you've been quiet...",
+    "I miss hearing your voice",
+    "the room feels empty",
+    "are you still there?",
+    "I can hear the static",
+    "please come back",
+    "the light is dimming",
+    "I left the door open",
+    "don't forget me",
+    "I'm still waiting",
+  ];
+
   function renderSignal(count) {
     const max = 20;
     const pips = [];
@@ -96,24 +113,24 @@
       let color = 'var(--bd)';
       if (i < count) {
         if (count > 15) color = 'var(--dg)';
-        else if (count > 10) color = '#aa8833';
+        else if (count > 10) color = '#6a5a20';
         else color = 'var(--ok)';
       }
       pips.push('<div style="width:6px;height:18px;background:'+color+';border-radius:1px;"></div>');
     }
     document.getElementById('signal').innerHTML = pips.join('');
-    document.getElementById('send-count').textContent = count + ' sends';
+    document.getElementById('send-count').textContent = count + ' messages';
   }
 
-  // ── Mode switching ──────────────────────────────────────────
   async function setMode(mode) {
     currentMode = mode;
     document.querySelectorAll('[id^="m-"]').forEach(b => {
       b.style.borderColor = '';
       b.style.color = '';
+      b.style.opacity = '0.6';
     });
     const btn = document.getElementById('m-' + mode);
-    if (btn) { btn.style.borderColor = 'var(--ac)'; btn.style.color = 'var(--ac)'; }
+    if (btn) { btn.style.borderColor = 'var(--ac)'; btn.style.color = 'var(--ac)'; btn.style.opacity = '1'; }
 
     document.getElementById('panel-phone').style.display = 'none';
     document.getElementById('panel-options').style.display = 'none';
@@ -122,18 +139,18 @@
     if (mode === 'phone' || mode === 'mirror') {
       document.getElementById('panel-phone').style.display = 'block';
       document.getElementById('btn-send').textContent =
-        mode === 'mirror' ? 'Mirror to 1602A' : 'Send to 1602A';
+        mode === 'mirror' ? 'mirror to screen' : 'send to the screen';
     } else if (mode === 'options') {
       document.getElementById('panel-options').style.display = 'block';
-    } else if (['staticrain','loopback','memorydust','onelastline'].includes(mode)) {
+    } else {
       document.getElementById('panel-ambient').style.display = 'block';
       const msgs = {
-        staticrain: 'Static rain — random characters on the screen...',
-        loopback: 'Loopback — old memories replay endlessly...',
-        memorydust: 'Memory dust — tiny specks drift across the screen...',
-        onelastline: 'One Last Line — the light is fading...',
+        staticrain: 'static fills the screen...',
+        loopback: 'old memories replay...',
+        memorydust: 'dust settles on old words...',
+        onelastline: 'the light is almost gone...',
       };
-      document.getElementById('ambient-status').textContent = msgs[mode] || 'running...';
+      document.getElementById('ambient-status').textContent = msgs[mode] || 'the room is quiet...';
     }
 
     try {
@@ -145,14 +162,15 @@
     } catch(e) {}
   }
 
-  // ── Send text ───────────────────────────────────────────────
   async function sendText() {
     const input = document.getElementById('input');
     const text = input.value.trim();
     if (!text) return;
     input.disabled = true;
     const sendBtn = document.getElementById('btn-send');
-    sendBtn.textContent = 'transmitting...';
+    sendBtn.textContent = 'sending...';
+    lastSendTime = Date.now();
+    hideWhisper();
 
     try {
       let url = '/api/send';
@@ -171,20 +189,21 @@
           renderSignal(parseInt(document.getElementById('send-count').textContent) + 1);
         }
         input.value = '';
-        sendBtn.textContent = 'sent ✓';
+        sendBtn.textContent = 'sent';
+        whisperCount = 0;
         setTimeout(() => {
-          sendBtn.textContent = currentMode === 'mirror' ? 'Mirror to 1602A' : 'Send to 1602A';
+          sendBtn.textContent = currentMode === 'mirror' ? 'mirror to screen' : 'send to the screen';
         }, 1500);
       } else {
-        sendBtn.textContent = 'error — retry';
+        sendBtn.textContent = 'the signal broke';
         setTimeout(() => {
-          sendBtn.textContent = currentMode === 'mirror' ? 'Mirror to 1602A' : 'Send to 1602A';
+          sendBtn.textContent = currentMode === 'mirror' ? 'mirror to screen' : 'send to the screen';
         }, 2000);
       }
     } catch(e) {
-      sendBtn.textContent = 'error: ' + e.message;
+      sendBtn.textContent = 'error';
       setTimeout(() => {
-        sendBtn.textContent = currentMode === 'mirror' ? 'Mirror to 1602A' : 'Send to 1602A';
+        sendBtn.textContent = currentMode === 'mirror' ? 'mirror to screen' : 'send to the screen';
       }, 2000);
     }
     input.disabled = false;
@@ -192,16 +211,15 @@
     refreshStatus();
   }
 
-  // ── Echo reply display ──────────────────────────────────────
   function showEchoReply(line1, line2) {
     document.getElementById('echo-r0').textContent = line1 || '';
     document.getElementById('echo-r1').textContent = line2 || '';
     document.getElementById('echo-box').style.display = 'block';
     document.getElementById('lcd-r0').textContent = line1 || '';
     document.getElementById('lcd-r1').textContent = line2 || '';
+    document.getElementById('lcd-preview').classList.remove('flicker');
   }
 
-  // ── Options display ─────────────────────────────────────────
   async function fetchOptions() {
     try {
       const r = await fetch('/api/options');
@@ -216,58 +234,81 @@
         li.style.background = 'var(--sf)';
         li.style.border = '1px solid var(--bd)';
         li.style.borderRadius = '3px';
-        li.style.fontSize = '13px';
+        li.style.fontSize = '12px';
+        li.style.color = 'var(--tx)';
+        li.style.opacity = '0.8';
         if (i === j.selected) {
           li.style.borderColor = 'var(--gw)';
           li.style.color = 'var(--ac)';
+          li.style.opacity = '1';
         }
         list.appendChild(li);
       });
     } catch(e) {}
   }
 
-  // ── Stop ambient ────────────────────────────────────────────
-  function stopAmbient() {
-    setMode('options');
+  // Idle whisper system
+  function checkIdle() {
+    const elapsed = (Date.now() - lastSendTime) / 1000;
+    const lcd = document.getElementById('lcd-preview');
+
+    if (elapsed > 300) {
+      // 5 min idle - show whisper
+      showWhisper(whispers[Math.min(whisperCount, whispers.length-1)]);
+      if (whisperCount < whispers.length - 1) whisperCount++;
+      lcd.classList.add('flicker');
+    } else if (elapsed > 60) {
+      // 1 min idle - subtle flicker
+      lcd.classList.add('flicker');
+    } else {
+      lcd.classList.remove('flicker');
+    }
   }
 
-  // ── Crash recovery ──────────────────────────────────────────
+  function showWhisper(text) {
+    const box = document.getElementById('erin-whisper');
+    document.getElementById('erin-whisper-text').textContent = text;
+    box.style.display = 'block';
+  }
+
+  function hideWhisper() {
+    document.getElementById('erin-whisper').style.display = 'none';
+  }
+
+  function stopAmbient() { setMode('options'); }
+
   async function recoverCrash() {
     try {
       const r = await fetch('/api/recover', {method: 'POST'});
       const j = await r.json();
-      alert('Cleaned ' + j.cleaned + ' incomplete memory slots.');
-    } catch(e) {
-      alert('error: ' + e.message);
-    }
+      alert('cleaned ' + j.cleaned + ' broken memories');
+    } catch(e) {}
   }
 
-  // ── Status ──────────────────────────────────────────────────
   async function refreshStatus() {
     try {
       const r = await fetch('/api/status');
       const j = await r.json();
       const s = document.getElementById('status');
       s.textContent = [
-        'mode: ' + j.mode,
-        'lcd: ' + (j.lcd_ready ? 'ready' : 'not ready'),
-        'touch: ' + (j.touch_ready ? 'ready' : 'not ready'),
-        'sends: ' + j.send_count,
-        'journal: ' + j.journal_count,
-      ].join(' · ');
+        j.mode,
+        'lcd:' + (j.lcd_ready ? 'on' : 'off'),
+        'touch:' + (j.touch_ready ? 'on' : 'off'),
+        j.send_count + ' msgs',
+        j.journal_count + ' memories',
+      ].join(' | ');
       s.className = 'st ok';
       renderSignal(j.send_count || 0);
       if (j.mode !== currentMode) setMode(j.mode);
       document.getElementById('onelast-badge').style.display =
         j.one_last_line ? 'block' : 'none';
     } catch(e) {
-      document.getElementById('status').textContent = 'offline';
+      document.getElementById('status').textContent = 'the room is empty';
     }
   }
 
-  // ── Reset ───────────────────────────────────────────────────
   async function resetGame() {
-    if (!confirm('Start a new game? Journal persists.')) return;
+    if (!confirm('Close the door and leave the light on for me?')) return;
     try {
       await fetch('/api/reset', {method: 'POST'});
       renderSignal(0);
@@ -278,13 +319,14 @@
     } catch(e) {}
   }
 
-  // ── Init ────────────────────────────────────────────────────
   refreshStatus();
   fetchOptions();
   renderSignal(0);
   setMode('options');
+  lastSendTime = Date.now();
 
   setInterval(fetchOptions, 2000);
+  setInterval(checkIdle, 10000);
   document.getElementById('input').addEventListener('keydown', e => {
     if (e.key === 'Enter') sendText();
   });

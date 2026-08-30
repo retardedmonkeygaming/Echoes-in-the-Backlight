@@ -3,12 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-  <title>{% block title %}Echoes in the Backlight{% endblock %}</title>
+  <title>{% block title %}The Last Apartment{% endblock %}</title>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Special+Elite&display=swap');
     :root {
-      --bg: #07070c; --sf: #0e0e18; --bd: #1e1e2e;
-      --tx: #b8b8c8; --dm: #5a5a6a; --ac: #4a8aaa; --gw: #2a6a8a;
-      --dg: #8a3a3a; --ok: #3a8a5a;
+      --bg: #050508; --sf: #0a0a10; --bd: #1a1a24;
+      --tx: #8a8878; --dm: #4a4838; --ac: #9a8a50; --gw: #6a6a30;
+      --dg: #7a3030; --ok: #4a6a30; --glow: #3a5a2a;
+      --paper: #f5f0d0; --ink: #3a3020;
     }
     * { margin:0; padding:0; box-sizing:border-box; }
     html, body {
@@ -16,17 +18,57 @@
       background: var(--bg); color: var(--tx);
       min-height: 100vh;
       -webkit-tap-highlight-color: transparent;
+      overflow-x: hidden;
     }
-    .pg { max-width:500px; margin:0 auto; padding:20px 16px 60px; }
+    /* Dust particles */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      pointer-events: none;
+      background-image:
+        radial-gradient(1px 1px at 10% 20%, rgba(150,140,100,0.3), transparent),
+        radial-gradient(1px 1px at 30% 60%, rgba(150,140,100,0.2), transparent),
+        radial-gradient(1px 1px at 50% 40%, rgba(150,140,100,0.3), transparent),
+        radial-gradient(1px 1px at 70% 80%, rgba(150,140,100,0.2), transparent),
+        radial-gradient(1px 1px at 90% 30%, rgba(150,140,100,0.3), transparent),
+        radial-gradient(1px 1px at 20% 90%, rgba(150,140,100,0.2), transparent),
+        radial-gradient(1px 1px at 80% 10%, rgba(150,140,100,0.25), transparent),
+        radial-gradient(1px 1px at 40% 70%, rgba(150,140,100,0.15), transparent);
+      background-size: 200px 200px;
+      animation: dustDrift 20s linear infinite;
+      z-index: 9999;
+      opacity: 0.6;
+    }
+    @keyframes dustDrift {
+      0% { transform: translateY(0) translateX(0); }
+      25% { transform: translateY(-15px) translateX(8px); }
+      50% { transform: translateY(-5px) translateX(-5px); }
+      75% { transform: translateY(-20px) translateX(12px); }
+      100% { transform: translateY(0) translateX(0); }
+    }
+    /* Idle flicker */
+    @keyframes idleFlicker {
+      0%, 100% { opacity: 1; }
+      92% { opacity: 1; }
+      93% { opacity: 0.7; }
+      94% { opacity: 1; }
+      96% { opacity: 0.8; }
+      97% { opacity: 1; }
+    }
+    .flicker { animation: idleFlicker 4s ease-in-out infinite; }
+    /* Page container */
+    .pg { max-width:500px; margin:0 auto; padding:20px 16px 60px; position:relative; }
     .tt {
-      font-size:10px; text-transform:uppercase; letter-spacing:4px;
+      font-size:9px; text-transform:uppercase; letter-spacing:3px;
       color:var(--dm); text-align:center; padding:16px 0 8px;
       border-bottom:1px solid var(--bd); margin-bottom:20px;
+      font-family:'Special Elite',monospace;
     }
-    /* ── Navigation ── */
+    /* Navigation */
     .nav {
-      display:flex; justify-content:center; gap:20px;
-      font-size:11px; text-transform:uppercase; letter-spacing:2px;
+      display:flex; justify-content:center; gap:16px;
+      font-size:10px; text-transform:uppercase; letter-spacing:2px;
       margin-bottom:20px;
     }
     .nav a {
@@ -36,9 +78,9 @@
     .nav a:hover, .nav a.active {
       color:var(--ac); border-bottom-color:var(--gw);
     }
-    /* ── Forms ── */
+    /* Forms */
     label {
-      display:block; font-size:10px; text-transform:uppercase;
+      display:block; font-size:9px; text-transform:uppercase;
       letter-spacing:1.5px; color:var(--dm); margin-bottom:4px; margin-top:14px;
     }
     input[type="text"], input[type="number"], input[type="password"] {
@@ -49,48 +91,83 @@
     }
     input:focus { border-color:var(--gw); }
     .grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
-    /* ── Buttons ── */
+    /* Buttons - faded, worn look */
     button {
       width:100%; padding:12px; margin-top:12px;
       background:var(--gw); border:none; border-radius:3px;
-      color:#fff; font-family:inherit; font-size:11px;
+      color:#ccc; font-family:inherit; font-size:10px;
       text-transform:uppercase; letter-spacing:2px;
       cursor:pointer; transition: opacity .15s;
+      opacity: 0.8;
     }
-    button:active { opacity:.6; }
+    button:hover { opacity: 1; }
+    button:active { opacity:.5; }
     button.sec { background:transparent; border:1px solid var(--bd); color:var(--dm); }
     button.dng { background:var(--dg); }
-    button.sm { padding:8px; font-size:10px; margin-top:8px; }
-    /* ── Status ── */
+    button.sm { padding:8px; font-size:9px; margin-top:8px; }
+    /* Status */
     .st {
       margin-top:12px; padding:10px; background:var(--sf);
       border:1px solid var(--bd); border-radius:3px;
-      font-size:11px; color:var(--dm); text-align:center; word-break:break-word;
+      font-size:10px; color:var(--dm); text-align:center; word-break:break-word;
     }
     .st.ok { color:var(--ok); border-color:var(--ok); }
     .st.er { color:var(--dg); border-color:var(--dg); }
-    /* ── Section titles ── */
+    /* Section titles */
     .sec {
-      font-size:10px; text-transform:uppercase; letter-spacing:3px;
+      font-size:9px; text-transform:uppercase; letter-spacing:3px;
       color:var(--dm); margin-top:28px; margin-bottom:10px;
       padding-bottom:4px; border-bottom:1px solid var(--bd);
     }
-    /* ── Hint text ── */
-    .ht { font-size:10px; color:var(--dm); text-align:center; margin-top:8px; }
-    /* ── LCD Preview ── */
+    /* Hint text */
+    .ht { font-size:9px; color:var(--dm); text-align:center; margin-top:8px; }
+    /* LCD Preview with scanlines */
     .lcd-box {
-      background:#1a1a0a; border:2px solid #3a3a2a; border-radius:4px;
-      padding:8px 12px; font-size:13px; color:#7a9a3a;
+      background:#0a0f05; border:2px solid #1a2a10; border-radius:4px;
+      padding:8px 12px; font-size:13px; color:var(--glow);
       font-family:'Courier New',monospace; letter-spacing:1px;
       margin-top:10px; line-height:1.6; min-height:42px;
-      text-shadow: 0 0 4px #7a9a3a44;
+      text-shadow: 0 0 6px var(--glow);
+      position: relative; overflow: hidden;
+    }
+    .lcd-box::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.15) 2px,
+        rgba(0,0,0,0.15) 4px
+      );
+      pointer-events: none;
+    }
+    /* Last seen */
+    .last-seen {
+      text-align:center; font-size:8px; color:var(--dm);
+      margin-top:8px; letter-spacing:1px; opacity:0.5;
     }
   </style>
 </head>
 <body>
 <div class="pg">
-  <div class="tt">Echoes in the Backlight</div>
+  <div class="tt">The Last Apartment</div>
   {% block content %}{% endblock %}
+  <div class="last-seen">Last seen: <span id="last-seen-time">just now</span></div>
 </div>
+<script>
+  let lastActivity = Date.now();
+  document.addEventListener('click', () => lastActivity = Date.now());
+  document.addEventListener('keydown', () => lastActivity = Date.now());
+  setInterval(() => {
+    const sec = Math.floor((Date.now() - lastActivity) / 1000);
+    const el = document.getElementById('last-seen-time');
+    if (!el) return;
+    if (sec < 60) el.textContent = 'just now';
+    else if (sec < 3600) el.textContent = Math.floor(sec/60) + 'm ago';
+    else el.textContent = Math.floor(sec/3600) + 'h ago';
+  }, 5000);
+</script>
 </body>
 </html>

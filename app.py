@@ -15,7 +15,7 @@ import threading
 import time
 
 from flask import Flask, jsonify, render_template, request, Response
-
+from google import genai
 from lcd_driver import LCD
 from touch_sensor import TouchSensor
 import gemini_service as echo_ai
@@ -196,9 +196,9 @@ def _ghost_loop():
                 return
             time.sleep(0.1)
         if lcd and not _ghost_stop.is_set():
-            msgs = ["...", "I'm waiting...", "can you hear me", "stay.",
-                    "don't go.", "still here?", "I remember", "hold on",
-                    "please.", "are you there", "fading..."]
+            msgs = ["...", "I'm waiting", "are you there", "stay.",
+                    "don't go", "still here?", "I remember you",
+                    "please.", "come back", "fading...", "the light..."]
             lcd.show_ghost(random.choice(msgs), _ghost_stop)
 
 
@@ -637,7 +637,7 @@ def api_emergency():
     if lcd:
         lcd.clear()
         lcd.bl_on()
-        lcd.show("EMERGENCY", "RESET")
+        lcd.show("close the door", "leave light on")
         time.sleep(1)
         lcd.clear()
     return jsonify({"ok": True})
