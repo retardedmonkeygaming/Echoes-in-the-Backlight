@@ -37,6 +37,13 @@ class TouchSensor:
         if not _ON_PI: return
         GPIO.setmode(GPIO.BCM)
         GPIO.setwarnings(False)
+        # remove any stale edge detect from previous runs
+        try:
+            GPIO.remove_event_detect(self.pin)
+        except Exception:
+            pass
+        import time as _t
+        _t.sleep(0.1)
         GPIO.setup(self.pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
         if self.led_pin is not None:
             GPIO.setup(self.led_pin, GPIO.OUT, initial=GPIO.LOW)
