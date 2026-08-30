@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Config — Echoes{% endblock %}
+
+{% block content %}
+<div class="nav">
+  <a href="/">game</a>
+  <a class="active" href="/config">config</a>
+</div>
+
+<!-- API Key -->
+<label>Gemini API Key</label>
+<input type="password" id="apikey" placeholder="AIza..." value="{{ config.get('gemini_key', '') }}">
+
+<!-- GPIO Pin Map -->
+<div class="section-title">GPIO Pin Map (BCM)</div>
+
+<div class="grid">
+  <div><label>RS</label><input type="number" id="pin_RS" value="{{ config.pin_map.RS }}"></div>
+  <div><label>RW</label><input type="number" id="pin_RW" value="{{ config.pin_map.RW }}"></div>
+  <div><label>E (Enable)</label><input type="number" id="pin_E" value="{{ config.pin_map.E }}"></div>
+  <div><label>Backlight (LOW=ON)</label><input type="number" id="pin_BACKLIGHT" value="{{ config.pin_map.BACKLIGHT }}"></div>
+  <div><label>D4</label><input type="number" id="pin_D4" value="{{ config.pin_map.D4 }}"></div>
+  <div><label>D5</label><input type="number" id="pin_D5" value="{{ config.pin_map.D5 }}"></div>
+  <div><label>D6</label><input type="number" id="pin_D6" value="{{ config.pin_map.D6 }}"></div>
+  <div><label>D7</label><input type="number" id="pin_D7" value="{{ config.pin_map.D7 }}"></div>
+  <div><label>Touch Sensor</label><input type="number" id="pin_TOUCH" value="{{ config.pin_map.TOUCH }}"></div>
+  <div><label>Feedback LED</label><input type="number" id="pin_LED" value="{{ config.pin_map.get('LED', '') }}"></div>
+  <div><label>Buzzer (optional)</label><input type="number" id="pin_BUZZER" value="{{ config.pin_map.get('BUZZER', '') }}"></div>
+</div>
+
+<div class="grid" style="margin-top:8px;">
+  <div><label>LCD Columns</label><input type="number" id="cols" value="{{ config.get('cols', 16) }}"></div>
+  <div><label>LCD Rows</label><input type="number" id="rows" value="{{ config.get('rows', 2) }}"></div>
+</div>
+
+<button onclick="saveConfig()">Save &amp; Reinit Hardware</button>
+
+<!-- Calibration -->
+<div class="section-title">Calibrate &amp; Test</div>
+<label>Test String</label>
+<input type="text" id="testText" value="Hello, 1602A" maxlength="32">
+<div style="display:flex; gap:8px;">
+  <button onclick="testDisplay()" style="flex:2;">Calibrate &amp; Test</button>
+  <button class="secondary" onclick="toggleBacklight(true)" style="flex:1; margin-top:0;">BL ON</button>
+  <button class="secondary" onclick="toggleBacklight(false)" style="flex:1; margin-top:0;">BL OFF</button>
+</div>
+
+<!-- Emergency -->
+<div class="section-title">Emergency</div>
+<button class="danger" onclick="emergencyReset()">Emergency Reset</button>
+<div class="hint">Clears display, stops all activity, resets touch state.</div>
+
+<!-- Status -->
+<div class="status" id="status"></div>
+
+<script>
+  function setStatus(msg, cls) {
+    const s = document.getElementById('status');
+    s.textContent = msg;
+    s.className = 'status ' + (cls || '');
+  }
+
+  async function saveConfig() {
+    const pinKeys = ['RS','RW','E','BACKLIGHT','D4','D5','D6','D7','TOUCH','LED','BUZZER'];
+    const pinMap = {};
+    pinKeys.forEach(k => {
+      const v = document.getElementById('pin_'+k).value.trim();
+      pinMap[k] = v === '' ? null : parseInt(v);
+    });
+    const body = {
+      gemini_key: document.getElementById('apikey').value,
+      pin_map: pinMap,
+      cols: parseInt(document.getElementById('cols').value),
+      rows: parseInt(document.getElementById('rows').value),
+    };
+    setStatus('saving...', '');
+    try {
+      const r = await fetch('/api/config', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(body)
+      });
+      const j = await r.json();
+      if (j.ok) setStatus('✓ saved — hardware reinitialized', 'ok');
+      else setStatus('✗ ' + JSON.stringify(j), 'err');
+    } catch(e) {
+      setStatus('✗ ' + e.message, 'err');
+    }
+  }
+
+  async function testDisplay() {
+    const text = document.getElementById('testText').value;
+    setStatus('sending test pattern...', '');
+    try {
+      const r = await fetch('/api/test', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({text})
+      });
+      const j = await r.json();
+      if (j.ok) setStatus('✓ display should show: ' + j.text, 'ok');
+      else setStatus('✗ ' + j.error, 'err');
+    } catch(e) {
+      setStatus('✗ ' + e.message, 'err');
+    }
+  }
+
+  async function toggleBacklight(on) {
+    try {
+      await fetch('/api/backlight', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({on})
+      });
+      setStatus(on ? 'backlight ON' : 'backlight OFF', 'ok');
+    } catch(e) {
+      setStatus('✗ ' + e.message, 'err');
+    }
+  }
+
+  async function emergencyReset() {
+    if (!confirm('Emergency reset? This stops everything.')) return;
+    try {
+      await fetch('/api/emergency', {method: 'POST'});
+      setStatus('✓ emergency reset complete', 'ok');
+    } catch(e) {
+      setStatus('✗ ' + e.message, 'err');
+    }
+  }
+</script>
+{% endblock %}

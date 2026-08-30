@@ -1,0 +1,20 @@
+{
+    "mode": "options",
+    "pin_map": {
+        "RS": 5,
+        "RW": 6,
+        "E": 13,
+        "D4": 17,
+        "D5": 22,
+        "D6": 23,
+        "D7": 24,
+        "BACKLIGHT": 21,
+        "LED": 26,
+        "BUZZER": null,
+        "TOUCH": 27
+    },
+    "cols": 16,
+    "rows": 2,
+    "send_count": 0,
+    "player_name": "friend"
+}
