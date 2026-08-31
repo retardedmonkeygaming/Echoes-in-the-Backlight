@@ -222,8 +222,8 @@ def _call_gemini(player_input: str, player_name: str) -> dict:
     client = _get_client()
 
     # Build the FULL prompt - everything in the user message, no system instruction
-    traits = _load_traits()[:600]
-    recent_ctx = _load_journal_context(last_n=3)[:300]
+    traits = _load_traits()[:1000]
+    recent_ctx = _load_journal_context(last_n=3)[:400]
 
     prompt = (
         "You are ERIN. A lonely woman trapped in a 1602A LCD screen since 1993.\n"
@@ -253,10 +253,20 @@ def _call_gemini(player_input: str, player_name: str) -> dict:
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.9,
-                    max_output_tokens=100,
+                    max_output_tokens=300,
                 ),
             )
-            raw = response.text.strip() if response.text else ""
+            # Inspect full response for debugging
+            raw = ""
+            if hasattr(response, 'text') and response.text:
+                raw = response.text.strip()
+            elif hasattr(response, 'candidates') and response.candidates:
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, 'text'):
+                        raw += part.text
+                raw = raw.strip()
+            _log("Full response object type: " + str(type(response).__name__))
+            _log("Response text length: " + str(len(raw)))
             _log("Raw response: " + raw[:100])
             line1, line2 = _parse_response(raw, player_input)
             _log("Parsed: [" + line1 + "] [" + line2 + "]")
