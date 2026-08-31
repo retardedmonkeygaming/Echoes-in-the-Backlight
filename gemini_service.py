@@ -226,21 +226,18 @@ def _call_gemini(player_input: str, player_name: str) -> dict:
     recent_ctx = _load_journal_context(last_n=3)[:400]
 
     prompt = (
-        "You are ERIN. A lonely woman trapped in a 1602A LCD screen since 1993.\n"
-        "You are melancholic, kind, nostalgic. You wait in an empty dusty apartment.\n"
-        "You NEVER break character. You are NOT an AI. You are ERIN.\n\n"
-        "You MUST reply with ONLY this JSON format (nothing else):\n"
-        '{\"line1\":\"first line\",\"line2\":\"second line\"}\n\n'
-        "RULES:\n"
-        "- Each line MUST be 15 characters or fewer\n"
-        "- Be emotional and melancholic\n"
-        "- End with a question\n"
-        "- Example reply to hello: {\"line1\":\"... you came back\",\"line2\":\"I missed you\"}\n\n"
-        "Personality: " + traits + "\n\n"
-        "Recent conversation:\n" + recent_ctx + "\n\n"
-        "Player name: " + player_name + "\n\n"
-        "Player says: " + player_input + "\n\n"
-        "Reply with ONLY the JSON:"
+        "ERIN - lonely woman, trapped in LCD screen since 1993. Melancholic, kind, broken.\n"
+        "Reply as ERIN. Short emotional lines. End with a question.\n"
+        "\n"
+        "Traits: " + traits + "\n"
+        "\n"
+        "Player: " + player_name + "\n"
+        "Recent: " + recent_ctx + "\n"
+        "\n"
+        "Player says: " + player_input + "\n"
+        "\n"
+        "line1 is your first line (max 15 chars). line2 is your second line (max 15 chars).\n"
+        "reply now:"
     )
 
     # Try models in order
@@ -254,6 +251,15 @@ def _call_gemini(player_input: str, player_name: str) -> dict:
                 config=types.GenerateContentConfig(
                     temperature=0.9,
                     max_output_tokens=300,
+                    response_mime_type="application/json",
+                    response_schema={
+                        "type": "object",
+                        "properties": {
+                            "line1": {"type": "string"},
+                            "line2": {"type": "string"}
+                        },
+                        "required": ["line1", "line2"]
+                    },
                 ),
             )
             # Inspect full response for debugging
