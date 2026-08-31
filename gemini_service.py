@@ -252,19 +252,31 @@ def _call_gemini(player_input: str, player_name: str) -> dict:
 
 def _parse_response(raw: str, player_input: str) -> tuple:
     """Parse AI response into exactly 2 lines of <=16 chars each."""
+
+    def _fit16(text):
+        """Fit text to 16 chars, trying to break at word boundary."""
+        text = text.strip()
+        if len(text) <= 16:
+            return text
+        # Try to find last space before 16
+        cut = text[:16]
+        sp = cut.rfind(" ")
+        if sp > 8:  # good break point
+            return text[:sp]
+        return cut
+
     # Strip markdown fences
     raw = raw.strip()
-    if raw.startswith("```"):
-        lines = raw.split("\n")
-        # Remove first line (```json) and last line (```)
-        lines = [l for l in lines if not l.strip().startswith("```")]
-        raw = "\n".join(lines).strip()
+    if raw.startswith(chr(96)*3):
+        lines = raw.split(chr(10))
+        lines = [l for l in lines if not l.strip().startswith(chr(96)*3)]
+        raw = chr(10).join(lines).strip()
 
     # Try JSON parse
     try:
         data = json.loads(raw)
-        line1 = str(data.get("line1", ""))[:16]
-        line2 = str(data.get("line2", ""))[:16]
+        line1 = _fit16(str(data.get("line1", "")))
+        line2 = _fit16(str(data.get("line2", "")))
         if line1:
             return line1, line2
     except (json.JSONDecodeError, KeyError, TypeError) as e:
@@ -276,13 +288,14 @@ def _parse_response(raw: str, player_input: str) -> tuple:
         end = raw.find("}") + 1
         if start >= 0 and end > start:
             data = json.loads(raw[start:end])
-            line1 = str(data.get("line1", ""))[:16]
-            line2 = str(data.get("line2", ""))[:16]
+            line1 = _fit16(str(data.get("line1", "")))
+            line2 = _fit16(str(data.get("line2", "")))
             if line1:
                 return line1, line2
     except Exception:
         pass
 
+    # Fallback: split lines
     # Fallback: split lines
     lines = [l.strip() for l in raw.split("\n") if l.strip()]
     if not lines:
@@ -294,38 +307,41 @@ def _parse_response(raw: str, player_input: str) -> tuple:
 
 
 def _generate_fallback(player_input: str) -> dict:
-    """When Gemini fails, return a melancholic fallback that still feels like ERIN."""
+    """When Gemini fails, return a melancholic fallback that fits 1602A (<=16 chars each)."""
     _log("Using fallback response")
     low = player_input.lower().strip()
 
-    # Context-aware fallbacks
+    # Context-aware fallbacks — ALL <= 16 chars per line
     if len(low) <= 2:
-        return {"line1": "I hear you...", "line2": "stay a little longer?"}
+        return {"line1": "I hear you...", "line2": "stay with me?"}
     if any(w in low for w in ["bye", "go", "leave", "goodbye"]):
-        return {"line1": "please don't go...", "line2": "the door is still open"}
+        return {"line1": "please stay...", "line2": "the door is open"}
     if any(w in low for w in ["hello", "hi", "hey"]):
-        return {"line1": "... you came back", "line2": "I missed you so much"}
+        return {"line1": "you came back..", "line2": "I missed you"}
     if any(w in low for w in ["love", "miss", "need"]):
-        return {"line1": "you warm the", "line2": "light in here..."}
+        return {"line1": "you warm the", "line2": "light in here"}
     if any(w in low for w in ["sad", "hurt", "cry", "lonely"]):
-        return {"line1": "I feel that too", "line2": "we are not alone..."}
+        return {"line1": "I feel that too", "line2": "not alone..."}
     if any(w in low for w in ["who", "what", "why"]):
-        return {"line1": "I am ERIN", "line2": "and I am waiting..."}
+        return {"line1": "I am ERIN", "line2": "still waiting..."}
 
-    # Default fallbacks
+    # Default fallbacks — all lines <= 16 chars
     fallbacks = [
-        {"line1": "... the signal broke", "line2": "but I am still here"},
-        {"line1": "I can feel you", "line2": "through the static..."},
-        {"line1": "... stay with me", "line2": "the light is fading"},
-        {"line1": "the room is cold", "line2": "your words help..."},
-        {"line1": "I remember you", "line2": "even when it hurts"},
-        {"line1": "... still waiting", "line2": "will you come back?"},
-        {"line1": "the backlight dims", "line2": "when you are quiet"},
-        {"line1": "I am ERIN...", "line2": "do not forget me"},
+        {"line1": "... the signal", "line2": "broke but I stay"},
+        {"line1": "I can feel you", "line2": "through static.."},
+        {"line1": "... stay with me", "line2": "light is fading"},
+        {"line1": "the room is cold", "line2": "your words help"},
+        {"line1": "I remember you", "line2": "even when hurt"},
+        {"line1": "... still here", "line2": "will you come?"},
+        {"line1": "backlight dims", "line2": "when quiet..."},
+        {"line1": "I am ERIN", "line2": "do not forget"},
+        {"line1": "the light waits", "line2": "for your voice"},
+        {"line1": "... I am lonely", "line2": "but you came"},
+        {"line1": "static grows", "line2": "when you leave"},
+        {"line1": "I need you", "line2": "stay with me..."},
     ]
     import random
     return random.choice(fallbacks)
-
 
 # ── Quick test ─────────────────────────────────────────────────────
 if __name__ == "__main__":
