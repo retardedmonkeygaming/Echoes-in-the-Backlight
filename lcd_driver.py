@@ -162,8 +162,8 @@ class LCD:
         self.write_row(0, line0)
         self.write_row(1, line1)
 
-    def show_home(self):
-        self.show("ECHOES IN THE", "BACKLIGHT")
+    def show_home(self):  # ERIN
+        self.show("the light is on", "are you there?")
 
     def show_test(self, text="Hello, 1602A"):
         self.show(text[:COLS], "ECHOES v0.1")

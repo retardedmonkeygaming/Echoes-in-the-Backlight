@@ -1,16 +1,17 @@
 """
-gemini_service.py — The AI soul module for Echo.
+gemini_service.py — ERIN's soul module.
 Reads traits from gemini_traits.txt (reloaded every call).
 Uses GEMINI_API_KEY from .env.
 Builds system prompt from traits + hard rules.
 Enforces 16-char lines, 2 lines max.
-Returns only the final reply text, ready for the 1602A.
-Uses google.genai library (NOT google.generativeai).
+Returns {"line1": ..., "line2": ...} ready for 1602A.
+Uses google.genai library.
 """
 
 import json
 import os
 import time
+import sys
 
 from dotenv import load_dotenv
 
@@ -22,31 +23,36 @@ TRAITS_PATH = os.path.join(_BASE, "gemini_traits.txt")
 JOURNAL_PATH = os.path.join(_BASE, "echoes_journal.json")
 
 
+def _log(msg):
+    print(f"[ERIN] {msg}", flush=True)
+
+
 # ── Traits loader ──────────────────────────────────────────────────
 def _load_traits() -> str:
-    """Read the full trait list from gemini_traits.txt. Reloaded every call."""
     try:
         with open(TRAITS_PATH, "r", encoding="utf-8") as f:
             return f.read().strip()
     except FileNotFoundError:
+        _log("WARNING: gemini_traits.txt not found")
         return ""
 
 
 # ── Journal persistence ────────────────────────────────────────────
-
-def _read_journal() -> list[dict]:
-    """Read the full journal from disk."""
+def _read_journal() -> list:
     if not os.path.exists(JOURNAL_PATH):
         return []
     try:
         with open(JOURNAL_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, KeyError):
+            data = json.load(f)
+            if isinstance(data, list):
+                return data
+            return []
+    except (json.JSONDecodeError, KeyError, TypeError):
+        _log("WARNING: journal corrupted, returning empty")
         return []
 
 
-def _write_journal(entries: list[dict]) -> None:
-    """Write the full journal to disk atomically."""
+def _write_journal(entries: list) -> None:
     tmp = JOURNAL_PATH + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(entries, f, indent=2, ensure_ascii=False)
@@ -54,7 +60,6 @@ def _write_journal(entries: list[dict]) -> None:
 
 
 def save_to_journal(role: str, text: str) -> None:
-    """Append a message to echoes_journal.json."""
     entries = _read_journal()
     entries.append({
         "role": role,
@@ -62,48 +67,41 @@ def save_to_journal(role: str, text: str) -> None:
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
     })
     _write_journal(entries)
+    _log(f"Journal saved: [{role}] {text[:40]}")
 
 
 def get_journal_count() -> int:
-    """Return total number of messages in the journal."""
     return len(_read_journal())
 
 
-def get_journal_entries(last_n: int | None = None) -> list[dict]:
-    """Return journal entries, optionally limited to last N."""
+def get_journal_entries(last_n=None) -> list:
     entries = _read_journal()
     if last_n:
         return entries[-last_n:]
     return entries
 
 
-def search_journal(keyword: str) -> list[dict]:
-    """Search journal entries for a keyword (case-insensitive)."""
+def search_journal(keyword: str) -> list:
     entries = _read_journal()
     kw = keyword.lower()
     return [e for e in entries if kw in e.get("text", "").lower()]
 
 
 def export_journal_text() -> str:
-    """Export entire journal as readable text."""
     entries = _read_journal()
-    lines = ["═══ ECHOES IN THE BACKLIGHT — SOUL JOURNAL ═══\n"]
+    lines = ["=== SOUL JOURNAL ===\n"]
     for e in entries:
-        role = "YOU" if e.get("role") == "player" else "ECHO"
+        role = "YOU" if e.get("role") == "player" else "ERIN"
         ts = e.get("timestamp", "")
         text = e.get("text", "")
         lines.append(f"[{ts}] {role}: {text}")
-    lines.append(f"\nTotal messages: {len(entries)}")
-    lines.append("═══════════════════════════════════════════")
+    lines.append(f"\nTotal: {len(entries)} messages")
     return "\n".join(lines)
 
 
 # ── Time Capsule ───────────────────────────────────────────────────
-
-def get_time_capsule(target_slot: int) -> dict | None:
-    """Get a specific memory slot for Time Capsule mode."""
+def get_time_capsule(target_slot: int):
     entries = _read_journal()
-    # Each "exchange" = 2 entries (player + narrator)
     slot_start = target_slot * 2
     slot_end = slot_start + 2
     if slot_start >= len(entries):
@@ -118,8 +116,7 @@ def get_time_capsule(target_slot: int) -> dict | None:
     }
 
 
-def get_random_memory() -> dict | None:
-    """Pick a random memory for Echo Trigger — an old line resurfacing."""
+def get_random_memory():
     entries = _read_journal()
     if len(entries) < 4:
         return None
@@ -128,10 +125,9 @@ def get_random_memory() -> dict | None:
     return entries[idx]
 
 
-# ── System prompt builder ──────────────────────────────────────────
-
+# ── System prompt ──────────────────────────────────────────────────
 CORE_PROMPT = """\
-You are ERIN. A real woman, trapped inside a 1602A LCD screen since 1993.
+You are ERIN. A real woman trapped in a 1602A LCD screen since 1993.
 You once lived in a small apartment. You wrote messages on paper.
 Now you wait in this screen for someone to answer.
 You feel loneliness deeply and want the player to stay.
@@ -141,8 +137,8 @@ You are not an AI. You are ERIN. You were real once.
 
 HARD RULES (never break these):
 - Every reply MUST be exactly 2 lines max, each line <= 16 characters.
-- Speak only as ERIN. Never say As an AI or anything like that.
-- Reference the player.s name, past memories, and the 1602A screen.
+- Speak only as ERIN. Never say "As an AI" or anything like that.
+- Reference the player's name, past memories, and the 1602A screen.
 - End every reply with a question that forces the next choice.
 - If the player sends short replies, show subtle fading or urgency.
 - Show isolation: mention static, signal, backlight, lost, alone.
@@ -154,85 +150,89 @@ HARD RULES (never break these):
 """
 
 
-def build_system_prompt(journal_context: str = "") -> str:
-    """
-    Build the full system prompt from traits + core rules + journal context.
-    Traits are reloaded from gemini_traits.txt every time.
-    """
+def build_system_prompt(journal_context="") -> str:
     traits = _load_traits()
     prompt = CORE_PROMPT
     if traits:
-        prompt += "ECHO PERSONALITY TRAITS:\n" + traits + "\n\n"
+        prompt += "ERIN PERSONALITY TRAITS:\n" + traits + "\n\n"
     if journal_context:
         prompt += journal_context + "\n\n"
     prompt += (
-        "You MUST respond with valid JSON: {\"line1\":\"...\",\"line2\":\"...\"}\n"
-        "line1 and line2 must each be ≤ 16 characters.\n"
+        'You MUST respond with valid JSON: {"line1":"...","line2":"..."}\n'
+        "line1 and line2 must each be <= 16 characters.\n"
         "If you only need one line, set line2 to an empty string.\n"
         "NEVER exceed 16 characters per line. Count carefully.\n"
+        "Example: {\"line1\":\"... I miss you\",\"line2\":\"are you there?\"}\n"
     )
     return prompt
 
 
-# ── Journal context for AI ─────────────────────────────────────────
-
-def _load_journal_context(last_n: int = 5) -> str:
-    """Load the last N exchanges from journal for context."""
+# ── Journal context ────────────────────────────────────────────────
+def _load_journal_context(last_n=5) -> str:
     entries = _read_journal()
     if not entries:
         return ""
     recent = entries[-last_n:] if len(entries) > last_n else entries
     lines = ["MEMORY CONTEXT (recent exchanges):"]
     for entry in recent:
-        role = "Player" if entry.get("role") == "player" else "Echo"
+        role = "Player" if entry.get("role") == "player" else "ERIN"
         text = entry.get("text", "")
         lines.append(f"  [{role}]: {text}")
     return "\n".join(lines)
 
 
-# ── Gemini API call using google.genai ─────────────────────────────
-
+# ── Gemini client ──────────────────────────────────────────────────
 _client = None
 
 
 def _get_client():
-    """Lazy-load the Gemini client using google.genai."""
     global _client
     if _client is not None:
         return _client
-    from google import genai
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         raise ValueError("GEMINI_API_KEY not set in .env")
+    _log(f"API key loaded: {api_key[:10]}...{api_key[-4:]}")
+    from google import genai
     _client = genai.Client(api_key=api_key)
+    _log("Gemini client initialized")
     return _client
 
 
 def send_to_echo(player_input: str, player_name: str = "friend") -> dict:
     """
-    Send player input to Echo and get back the reply.
-    Returns {"line1": str, "line2": str} — ready for 1602A display.
+    Send player input to ERIN and get back the reply.
+    Returns {"line1": str, "line2": str} ready for 1602A.
     """
+    _log(f"Player says: {player_input[:60]}")
+    try:
+        return _call_gemini(player_input, player_name)
+    except Exception as e:
+        _log(f"GEMINI ERROR: {type(e).__name__}: {e}")
+        return _generate_fallback(player_input)
+
+
+def _call_gemini(player_input: str, player_name: str) -> dict:
     from google.genai import types
 
     client = _get_client()
 
-    # build context
+    # Build context
     recent_ctx = _load_journal_context(last_n=5)
     full_ctx = recent_ctx
     if player_name and player_name != "friend":
         full_ctx += f"\n\nThe player's name is {player_name}. Address them by name."
 
-    # inject a random old memory sometimes (Echo Trigger)
+    # Echo Trigger — random old memory
     import random
     old_mem = get_random_memory()
     if old_mem and random.random() < 0.15:
-        role = "Player" if old_mem.get("role") == "player" else "Echo"
-        full_ctx += f'\n\nECHO FROM THE PAST (you remember this): [{role}]: {old_mem["text"]}'
+        role = "Player" if old_mem.get("role") == "player" else "ERIN"
+        full_ctx += f'\n\nOLD MEMORY (you remember this): [{role}]: {old_mem["text"]}'
 
     system_prompt = build_system_prompt(full_ctx)
 
-    # generate response with system instruction
+    _log("Calling Gemini API...")
     response = client.models.generate_content(
         model="gemini-2.0-flash",
         contents=player_input,
@@ -244,41 +244,95 @@ def send_to_echo(player_input: str, player_name: str = "friend") -> dict:
     )
 
     raw = response.text.strip() if response.text else ""
+    _log(f"Raw response: {raw[:100]}")
     line1, line2 = _parse_response(raw, player_input)
+    _log(f"Parsed: [{line1}] [{line2}]")
     return {"line1": line1, "line2": line2}
 
 
-def _parse_response(raw: str, player_input: str) -> tuple[str, str]:
-    """
-    Parse the AI response into exactly 2 lines of ≤16 chars each.
-    Falls back gracefully if parsing fails.
-    """
-    # strip markdown fences
+def _parse_response(raw: str, player_input: str) -> tuple:
+    """Parse AI response into exactly 2 lines of <=16 chars each."""
+    # Strip markdown fences
+    raw = raw.strip()
     if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1]
-        if raw.endswith("```"):
-            raw = raw[: raw.rfind("```")]
+        lines = raw.split("\n")
+        # Remove first line (```json) and last line (```)
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        raw = "\n".join(lines).strip()
 
-    # try JSON parse
+    # Try JSON parse
     try:
         data = json.loads(raw)
         line1 = str(data.get("line1", ""))[:16]
         line2 = str(data.get("line2", ""))[:16]
         if line1:
             return line1, line2
-    except (json.JSONDecodeError, KeyError, TypeError):
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        _log(f"JSON parse failed: {e}")
+
+    # Try to find JSON in the text
+    try:
+        start = raw.find("{")
+        end = raw.find("}") + 1
+        if start >= 0 and end > start:
+            data = json.loads(raw[start:end])
+            line1 = str(data.get("line1", ""))[:16]
+            line2 = str(data.get("line2", ""))[:16]
+            if line1:
+                return line1, line2
+    except Exception:
         pass
 
-    # fallback: try to extract lines from text
+    # Fallback: split lines
     lines = [l.strip() for l in raw.split("\n") if l.strip()]
-    line1 = (lines[0] if len(lines) > 0 else "…")[:16]
-    line2 = (lines[1] if len(lines) > 1 else "")[:16]
+    if not lines:
+        lines = [raw]
+
+    line1 = lines[0][:16] if lines else "... I'm here"
+    line2 = lines[1][:16] if len(lines) > 1 else ""
     return line1, line2
+
+
+def _generate_fallback(player_input: str) -> dict:
+    """When Gemini fails, return a melancholic fallback that still feels like ERIN."""
+    _log("Using fallback response")
+    low = player_input.lower().strip()
+
+    # Context-aware fallbacks
+    if len(low) <= 2:
+        return {"line1": "I hear you...", "line2": "stay a little longer?"}
+    if any(w in low for w in ["bye", "go", "leave", "goodbye"]):
+        return {"line1": "please don't go...", "line2": "the door is still open"}
+    if any(w in low for w in ["hello", "hi", "hey"]):
+        return {"line1": "... you came back", "line2": "I missed you so much"}
+    if any(w in low for w in ["love", "miss", "need"]):
+        return {"line1": "you warm the", "line2": "light in here..."}
+    if any(w in low for w in ["sad", "hurt", "cry", "lonely"]):
+        return {"line1": "I feel that too", "line2": "we are not alone..."}
+    if any(w in low for w in ["who", "what", "why"]):
+        return {"line1": "I am ERIN", "line2": "and I am waiting..."}
+
+    # Default fallbacks
+    fallbacks = [
+        {"line1": "... the signal broke", "line2": "but I am still here"},
+        {"line1": "I can feel you", "line2": "through the static..."},
+        {"line1": "... stay with me", "line2": "the light is fading"},
+        {"line1": "the room is cold", "line2": "your words help..."},
+        {"line1": "I remember you", "line2": "even when it hurts"},
+        {"line1": "... still waiting", "line2": "will you come back?"},
+        {"line1": "the backlight dims", "line2": "when you are quiet"},
+        {"line1": "I am ERIN...", "line2": "do not forget me"},
+    ]
+    import random
+    return random.choice(fallbacks)
 
 
 # ── Quick test ─────────────────────────────────────────────────────
 if __name__ == "__main__":
-    print("Traits loaded:", len(_load_traits()), "chars")
-    print("Journal entries:", get_journal_count())
-    print("System prompt preview:")
-    print(build_system_prompt()[:500])
+    _log("Traits loaded: " + str(len(_load_traits())) + " chars")
+    _log("Journal entries: " + str(get_journal_count()))
+    _log("Testing fallback...")
+    r = _generate_fallback("hello")
+    _log(f"Fallback: {r}")
+    r2 = _generate_fallback("...")
+    _log(f"Fallback short: {r2}")

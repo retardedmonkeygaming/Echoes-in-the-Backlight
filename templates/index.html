@@ -58,20 +58,25 @@
   <button class="sec" onclick="stopAmbient()">return to the room</button>
 </div>
 
-<!-- LCD Preview -->
-<div class="sec">the screen</div>
-<div class="lcd-box" id="lcd-preview">
-  <div id="lcd-r0">the light is on</div>
-  <div id="lcd-r1">are you there?</div>
-</div>
-
-<!-- ERIN reply -->
-<div id="echo-box" style="display:none; margin-top:12px;">
+<!-- ERIN reply box (shows below input after sending) -->
+<div id="echo-box" style="display:none; margin-top:16px;">
   <label>ERIN said</label>
   <div class="lcd-box" id="echo-display">
     <div id="echo-r0"></div>
     <div id="echo-r1"></div>
   </div>
+</div>
+
+<!-- Error display -->
+<div id="error-box" style="display:none; margin-top:12px; padding:10px; background:#1a0a0a; border:1px solid var(--dg); border-radius:3px; text-align:center;">
+  <div style="font-size:10px; color:var(--dg);" id="error-text"></div>
+</div>
+
+<!-- LCD Preview -->
+<div class="sec">the screen</div>
+<div class="lcd-box" id="lcd-preview">
+  <div id="lcd-r0">the light is on</div>
+  <div id="lcd-r1">are you there?</div>
 </div>
 
 <!-- Actions -->
@@ -91,10 +96,10 @@
   let lastSendTime = Date.now();
   let idleTimer = null;
   let whisperCount = 0;
+  let totalSends = 0;
 
-  // ERIN idle whispers
   const whispers = [
-    "you've been quiet...",
+    "you have been quiet...",
     "I miss hearing your voice",
     "the room feels empty",
     "are you still there?",
@@ -102,11 +107,12 @@
     "please come back",
     "the light is dimming",
     "I left the door open",
-    "don't forget me",
-    "I'm still waiting",
+    "do not forget me",
+    "I am still waiting",
   ];
 
   function renderSignal(count) {
+    totalSends = count;
     const max = 20;
     const pips = [];
     for (let i = 0; i < max; i++) {
@@ -120,6 +126,18 @@
     }
     document.getElementById('signal').innerHTML = pips.join('');
     document.getElementById('send-count').textContent = count + ' messages';
+  }
+
+  function showError(msg) {
+    document.getElementById('error-text').textContent = msg;
+    document.getElementById('error-box').style.display = 'block';
+    setTimeout(() => {
+      document.getElementById('error-box').style.display = 'none';
+    }, 5000);
+  }
+
+  function hideError() {
+    document.getElementById('error-box').style.display = 'none';
   }
 
   async function setMode(mode) {
@@ -166,9 +184,11 @@
     const input = document.getElementById('input');
     const text = input.value.trim();
     if (!text) return;
+
     input.disabled = true;
     const sendBtn = document.getElementById('btn-send');
     sendBtn.textContent = 'sending...';
+    hideError();
     lastSendTime = Date.now();
     hideWhisper();
 
@@ -182,83 +202,126 @@
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(body)
       });
-      const j = await r.json();
-      if (j.ok || j.line1 !== undefined) {
-        if (j.line1 !== undefined) {
-          showEchoReply(j.line1, j.line2);
-          renderSignal(parseInt(document.getElementById('send-count').textContent) + 1);
-        }
+
+      const text_resp = await r.text();
+      let j;
+      try {
+        j = JSON.parse(text_resp);
+      } catch(parseErr) {
+        console.error('Response was not JSON:', text_resp.substring(0, 200));
+        showError('the signal returned something strange...');
+        sendBtn.textContent = 'try again';
+        setTimeout(() => {
+          sendBtn.textContent = currentMode === 'mirror' ? 'mirror to screen' : 'send to the screen';
+          input.disabled = false;
+          input.focus();
+        }, 2000);
+        return;
+      }
+
+      if (j.line1 !== undefined) {
+        showEchoReply(j.line1, j.line2 || '');
         input.value = '';
         sendBtn.textContent = 'sent';
         whisperCount = 0;
+
+        // Update signal count
+        if (j.send_count !== undefined) {
+          renderSignal(j.send_count);
+        } else {
+          renderSignal(totalSends + 1);
+        }
+
+        // Update options if returned
+        if (j.options && j.options.length > 0) {
+          renderOptions(j.options, 0);
+        }
+
         setTimeout(() => {
           sendBtn.textContent = currentMode === 'mirror' ? 'mirror to screen' : 'send to the screen';
+          input.disabled = false;
+          input.focus();
+        }, 1500);
+      } else if (j.ok) {
+        input.value = '';
+        sendBtn.textContent = 'sent';
+        setTimeout(() => {
+          sendBtn.textContent = currentMode === 'mirror' ? 'mirror to screen' : 'send to the screen';
+          input.disabled = false;
+          input.focus();
         }, 1500);
       } else {
-        sendBtn.textContent = 'the signal broke';
+        showError(j.error || 'the signal broke');
+        sendBtn.textContent = 'try again';
         setTimeout(() => {
           sendBtn.textContent = currentMode === 'mirror' ? 'mirror to screen' : 'send to the screen';
+          input.disabled = false;
+          input.focus();
         }, 2000);
       }
     } catch(e) {
-      sendBtn.textContent = 'error';
+      console.error('Network error:', e);
+      showError('connection lost: ' + e.message);
+      sendBtn.textContent = 'try again';
       setTimeout(() => {
         sendBtn.textContent = currentMode === 'mirror' ? 'mirror to screen' : 'send to the screen';
+        input.disabled = false;
+        input.focus();
       }, 2000);
     }
-    input.disabled = false;
-    input.focus();
-    refreshStatus();
   }
 
   function showEchoReply(line1, line2) {
     document.getElementById('echo-r0').textContent = line1 || '';
     document.getElementById('echo-r1').textContent = line2 || '';
     document.getElementById('echo-box').style.display = 'block';
+    // Also update the main LCD preview
     document.getElementById('lcd-r0').textContent = line1 || '';
     document.getElementById('lcd-r1').textContent = line2 || '';
     document.getElementById('lcd-preview').classList.remove('flicker');
+  }
+
+  function renderOptions(opts, selected) {
+    const list = document.getElementById('opt-list');
+    list.innerHTML = '';
+    (opts || []).forEach((opt, i) => {
+      const li = document.createElement('li');
+      li.textContent = opt;
+      li.style.padding = '10px 12px';
+      li.style.marginBottom = '4px';
+      li.style.background = 'var(--sf)';
+      li.style.border = '1px solid var(--bd)';
+      li.style.borderRadius = '3px';
+      li.style.fontSize = '12px';
+      li.style.color = 'var(--tx)';
+      li.style.opacity = '0.8';
+      li.style.fontFamily = 'Courier New, monospace';
+      if (i === selected) {
+        li.style.borderColor = 'var(--gw)';
+        li.style.color = 'var(--ac)';
+        li.style.opacity = '1';
+      }
+      list.appendChild(li);
+    });
   }
 
   async function fetchOptions() {
     try {
       const r = await fetch('/api/options');
       const j = await r.json();
-      const list = document.getElementById('opt-list');
-      list.innerHTML = '';
-      (j.options || []).forEach((opt, i) => {
-        const li = document.createElement('li');
-        li.textContent = opt;
-        li.style.padding = '10px 12px';
-        li.style.marginBottom = '4px';
-        li.style.background = 'var(--sf)';
-        li.style.border = '1px solid var(--bd)';
-        li.style.borderRadius = '3px';
-        li.style.fontSize = '12px';
-        li.style.color = 'var(--tx)';
-        li.style.opacity = '0.8';
-        if (i === j.selected) {
-          li.style.borderColor = 'var(--gw)';
-          li.style.color = 'var(--ac)';
-          li.style.opacity = '1';
-        }
-        list.appendChild(li);
-      });
+      renderOptions(j.options || [], j.selected || 0);
     } catch(e) {}
   }
 
-  // Idle whisper system
   function checkIdle() {
     const elapsed = (Date.now() - lastSendTime) / 1000;
     const lcd = document.getElementById('lcd-preview');
 
     if (elapsed > 300) {
-      // 5 min idle - show whisper
       showWhisper(whispers[Math.min(whisperCount, whispers.length-1)]);
       if (whisperCount < whispers.length - 1) whisperCount++;
       lcd.classList.add('flicker');
     } else if (elapsed > 60) {
-      // 1 min idle - subtle flicker
       lcd.classList.add('flicker');
     } else {
       lcd.classList.remove('flicker');
@@ -281,7 +344,7 @@
     try {
       const r = await fetch('/api/recover', {method: 'POST'});
       const j = await r.json();
-      alert('cleaned ' + j.cleaned + ' broken memories');
+      alert('cleaned ' + (j.cleaned || 0) + ' broken memories');
     } catch(e) {}
   }
 
@@ -304,6 +367,7 @@
         j.one_last_line ? 'block' : 'none';
     } catch(e) {
       document.getElementById('status').textContent = 'the room is empty';
+      document.getElementById('status').className = 'st er';
     }
   }
 
@@ -319,6 +383,7 @@
     } catch(e) {}
   }
 
+  // Initialize
   refreshStatus();
   fetchOptions();
   renderSignal(0);
