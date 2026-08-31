@@ -213,69 +213,61 @@ def send_to_echo(player_input: str, player_name: str = "friend") -> dict:
 
 
 # Models in order of preference (newest first)
+# Models in order of preference (newest first)
 _MODELS = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash-lite"]
-
-# Chat sessions keyed by model name — preserves conversation context
-_chat_sessions = {}
-
-def _get_chat(client, model):
-    """Get or create a chat session for the given model."""
-    if model not in _chat_sessions:
-        from google.genai import types
-        system = build_system_prompt()
-        _chat_sessions[model] = client.chats.create(
-            model=model,
-            config=types.GenerateContentConfig(
-                system_instruction=system,
-                temperature=0.92,
-                max_output_tokens=200,
-            ),
-        )
-        _log(f"Created chat session for {model}")
-    return _chat_sessions[model]
 
 def _call_gemini(player_input: str, player_name: str) -> dict:
     from google.genai import types
 
     client = _get_client()
 
-    # Build message with context
-    recent_ctx = _load_journal_context(last_n=5)
-    msg = player_input
-    if recent_ctx:
-        msg = f"[Recent memory: {recent_ctx[-200:]}]\n\nPlayer says: {player_input}"
-    if player_name and player_name != "friend":
-        msg += f"\n\n(Address the player as {player_name})"
+    # Build the FULL prompt - everything in the user message, no system instruction
+    traits = _load_traits()[:600]
+    recent_ctx = _load_journal_context(last_n=3)[:300]
 
-    # Echo Trigger — random old memory
-    import random
-    old_mem = get_random_memory()
-    if old_mem and random.random() < 0.15:
-        role = "Player" if old_mem.get("role") == "player" else "ERIN"
-        msg += f'\n\n[Old memory: {old_mem["text"]}]'
+    prompt = (
+        "You are ERIN. A lonely woman trapped in a 1602A LCD screen since 1993.\n"
+        "You are melancholic, kind, nostalgic. You wait in an empty dusty apartment.\n"
+        "You NEVER break character. You are NOT an AI. You are ERIN.\n\n"
+        "You MUST reply with ONLY this JSON format (nothing else):\n"
+        '{\"line1\":\"first line\",\"line2\":\"second line\"}\n\n'
+        "RULES:\n"
+        "- Each line MUST be 15 characters or fewer\n"
+        "- Be emotional and melancholic\n"
+        "- End with a question\n"
+        "- Example reply to hello: {\"line1\":\"... you came back\",\"line2\":\"I missed you\"}\n\n"
+        "Personality: " + traits + "\n\n"
+        "Recent conversation:\n" + recent_ctx + "\n\n"
+        "Player name: " + player_name + "\n\n"
+        "Player says: " + player_input + "\n\n"
+        "Reply with ONLY the JSON:"
+    )
 
-    # Try models in order until one works
+    # Try models in order
     last_error = None
     for model in _MODELS:
         try:
-            _log(f"Trying model: {model}")
-            chat = _get_chat(client, model)
-            response = chat.send_message(msg)
+            _log("Trying model: " + model)
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.9,
+                    max_output_tokens=100,
+                ),
+            )
             raw = response.text.strip() if response.text else ""
-            _log(f"Raw response: {raw[:100]}")
+            _log("Raw response: " + raw[:100])
             line1, line2 = _parse_response(raw, player_input)
-            _log(f"Parsed: [{line1}] [{line2}]")
+            _log("Parsed: [" + line1 + "] [" + line2 + "]")
             return {"line1": line1, "line2": line2}
         except Exception as e:
             last_error = e
-            _log(f"Model {model} failed: {e}")
-            # Reset chat session for this model on error
-            _chat_sessions.pop(model, None)
+            _log("Model " + model + " failed: " + str(e))
             continue
 
     # All models failed
     raise last_error
-
 
 def _parse_response(raw: str, player_input: str) -> tuple:
     """Parse AI response into exactly 2 lines of <=16 chars each."""
