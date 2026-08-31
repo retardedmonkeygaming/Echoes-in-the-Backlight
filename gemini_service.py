@@ -234,7 +234,7 @@ def _call_gemini(player_input: str, player_name: str) -> dict:
 
     _log("Calling Gemini API...")
     response = client.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         contents=player_input,
         config=types.GenerateContentConfig(
             system_instruction=system_prompt,

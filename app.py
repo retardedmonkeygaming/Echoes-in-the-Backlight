@@ -90,7 +90,8 @@ def init_all():
 def _stop_bg():
     for evt in [_ghost_stop, _scroll_stop, _ambient_stop]:
         evt.set()
-    time.sleep(0.1)
+    # Wait for scroll thread to actually finish
+    time.sleep(0.5)
     for evt in [_ghost_stop, _scroll_stop, _ambient_stop]:
         evt.clear()
 

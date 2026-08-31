@@ -23,6 +23,7 @@ class LCD:
     def __init__(self, pin_map: dict | None = None):
         self.pins = (pin_map or {}).copy()
         self._lock = threading.Lock()
+        self._display_lock = threading.Lock()
         self._initialized = False
         self._stop = threading.Event()
         self._mood = "normal"
@@ -158,9 +159,10 @@ class LCD:
 
     # ── high-level ──────────────────────────────────────────────────
     def show(self, line0, line1=""):
-        self.clear()
-        self.write_row(0, line0)
-        self.write_row(1, line1)
+        with self._display_lock:
+            self.clear()
+            self.write_row(0, line0)
+            self.write_row(1, line1)
 
     def show_home(self):  # ERIN
         self.show("the light is on", "are you there?")
@@ -170,35 +172,38 @@ class LCD:
         self.bl_pulse(0.5, 0.5); self.flash_led(0.2); self.beep(0.05)
 
     def show_options(self, opts, sel=0):
-        self.clear()
-        for i in range(min(ROWS, len(opts))):
-            marker = "> " if i == sel else "  "
-            self.write_row(i, marker + opts[i][:COLS-2])
+        with self._display_lock:
+            self.clear()
+            for i in range(min(ROWS, len(opts))):
+                marker = "> " if i == sel else "  "
+                self.write_row(i, marker + opts[i][:COLS-2])
 
     def show_memory_dust(self):
         """Tiny speck for 5s — visible proof Echo is collecting pieces."""
-        row = random.randint(0, 1)
-        col = random.randint(0, COLS - 3)
-        self.clear()
-        self.write_row(row, " " * col + "*" + " " * (COLS - col - 1))
-        self.write_row(1 - row, " " * COLS)
-        time.sleep(5.0)
-        self.clear()
+        with self._display_lock:
+            row = random.randint(0, 1)
+            col = random.randint(0, COLS - 3)
+            self.clear()
+            self.write_row(row, " " * col + "*" + " " * (COLS - col - 1))
+            self.write_row(1 - row, " " * COLS)
+            time.sleep(5.0)
+            self.clear()
 
     def show_ghost(self, text, stop=None):
         """Ghost message — flickers in, holds, fades."""
-        self.clear()
-        self.write_row(0, text[:COLS])
-        self.write_row(1, "")
-        for _ in range(3):
+        with self._display_lock:
+            self.clear()
+            self.write_row(0, text[:COLS])
+            self.write_row(1, "")
+            for _ in range(3):
+                if stop and stop.is_set(): return
+                self.bl_off(); time.sleep(0.06)
+                self.bl_on(); time.sleep(0.04)
+            time.sleep(random.uniform(0.8, 2.0))
             if stop and stop.is_set(): return
-            self.bl_off(); time.sleep(0.06)
-            self.bl_on(); time.sleep(0.04)
-        time.sleep(random.uniform(0.8, 2.0))
-        if stop and stop.is_set(): return
-        for _ in range(4):
-            self.bl_off(); time.sleep(0.08)
-            self.bl_on(); time.sleep(0.05)
+            for _ in range(4):
+                self.bl_off(); time.sleep(0.08)
+                self.bl_on(); time.sleep(0.05)
 
     def show_lost_signal(self):
         self.show("The signal is", "dead.")
@@ -225,16 +230,19 @@ class LCD:
     def scroll(self, line1, line2, page_delay=3.0, stop=None):
         """
         Display exactly 2 lines, one page at a time.
-        line1 and line2 are already ≤16 chars from gemini_service.
+        line1 and line2 are already <=16 chars from gemini_service.
         """
-        self.show(line1, line2)
-        self.modem_tone()
-        self.flash_led(0.03)
-        # wait with breathing
-        self.bl_breathing(cycles=1, step=0.04, stop=stop)
-        for _ in range(int(page_delay * 10)):
-            if stop and stop.is_set(): return
-            time.sleep(0.1)
+        with self._display_lock:
+            self.clear()
+            self.write_row(0, line1)
+            self.write_row(1, line2)
+            self.modem_tone()
+            self.flash_led(0.03)
+            # wait with breathing
+            self.bl_breathing(cycles=1, step=0.04, stop=stop)
+            for _ in range(int(page_delay * 10)):
+                if stop and stop.is_set(): return
+                time.sleep(0.1)
 
     def scroll_long(self, text, page_delay=3.0, breathing=True, stop=None, cb=None):
         """For longer text: split into 16-char lines, show 2 at a time."""
@@ -243,12 +251,15 @@ class LCD:
         if not pages: return
         for idx, page in enumerate(pages):
             if stop and stop.is_set(): return
-            pad = [l.ljust(COLS)[:COLS] for l in page]
-            while len(pad) < ROWS: pad.append(" " * COLS)
-            self.show(pad[0], pad[1])
-            if idx == 0: self.modem_tone()
-            else: self.beep(0.02)
-            self.flash_led(0.03)
+            with self._display_lock:
+                pad = [l.ljust(COLS)[:COLS] for l in page]
+                while len(pad) < ROWS: pad.append(" " * COLS)
+                self.clear()
+                self.write_row(0, pad[0])
+                self.write_row(1, pad[1])
+                if idx == 0: self.modem_tone()
+                else: self.beep(0.02)
+                self.flash_led(0.03)
             if cb: cb("\n".join(pad), idx)
             if breathing and idx < len(pages) - 1:
                 self.bl_breathing(cycles=1, step=0.04, stop=stop)
