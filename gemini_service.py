@@ -215,40 +215,52 @@ def send_to_echo(player_input: str, player_name: str = "friend") -> dict:
 # Models in order of preference (newest first)
 _MODELS = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash-lite"]
 
+# Chat sessions keyed by model name — preserves conversation context
+_chat_sessions = {}
+
+def _get_chat(client, model):
+    """Get or create a chat session for the given model."""
+    if model not in _chat_sessions:
+        from google.genai import types
+        system = build_system_prompt()
+        _chat_sessions[model] = client.chats.create(
+            model=model,
+            config=types.GenerateContentConfig(
+                system_instruction=system,
+                temperature=0.92,
+                max_output_tokens=200,
+            ),
+        )
+        _log(f"Created chat session for {model}")
+    return _chat_sessions[model]
+
 def _call_gemini(player_input: str, player_name: str) -> dict:
     from google.genai import types
 
     client = _get_client()
 
-    # Build context
+    # Build message with context
     recent_ctx = _load_journal_context(last_n=5)
-    full_ctx = recent_ctx
+    msg = player_input
+    if recent_ctx:
+        msg = f"[Recent memory: {recent_ctx[-200:]}]\n\nPlayer says: {player_input}"
     if player_name and player_name != "friend":
-        full_ctx += f"\n\nThe player's name is {player_name}. Address them by name."
+        msg += f"\n\n(Address the player as {player_name})"
 
     # Echo Trigger — random old memory
     import random
     old_mem = get_random_memory()
     if old_mem and random.random() < 0.15:
         role = "Player" if old_mem.get("role") == "player" else "ERIN"
-        full_ctx += f'\n\nOLD MEMORY (you remember this): [{role}]: {old_mem["text"]}'
-
-    system_prompt = build_system_prompt(full_ctx)
+        msg += f'\n\n[Old memory: {old_mem["text"]}]'
 
     # Try models in order until one works
     last_error = None
     for model in _MODELS:
         try:
             _log(f"Trying model: {model}")
-            response = client.models.generate_content(
-                model=model,
-                contents=player_input,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    temperature=0.92,
-                    max_output_tokens=150,
-                ),
-            )
+            chat = _get_chat(client, model)
+            response = chat.send_message(msg)
             raw = response.text.strip() if response.text else ""
             _log(f"Raw response: {raw[:100]}")
             line1, line2 = _parse_response(raw, player_input)
@@ -257,6 +269,8 @@ def _call_gemini(player_input: str, player_name: str) -> dict:
         except Exception as e:
             last_error = e
             _log(f"Model {model} failed: {e}")
+            # Reset chat session for this model on error
+            _chat_sessions.pop(model, None)
             continue
 
     # All models failed
