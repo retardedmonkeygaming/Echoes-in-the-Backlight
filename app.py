@@ -96,12 +96,31 @@ def _stop_bg():
         evt.clear()
 
 # -- LCD helpers --
-def _push_echo(line1, line2=""):
+def _push_echo(line1, line2="", show_time=4.0):
+    """Show ERIN's reply on LCD for show_time seconds, then show current options."""
     _stop_bg()
-    t = threading.Thread(target=_scroll_worker, args=(line1, line2), daemon=True)
+    t = threading.Thread(target=_echo_display_worker, args=(line1, line2, show_time), daemon=True)
     t.start()
 
+def _echo_display_worker(line1, line2, show_time):
+    """Show reply, wait, then show options — prevents options from overwriting reply."""
+    if lcd:
+        try:
+            lcd.scroll(line1, line2, page_delay=show_time, stop=_scroll_stop)
+        except Exception as e:
+            _log("echo display error: " + str(e))
+    # After showing the reply, show the current options
+    with _lock:
+        opts = list(_options)
+        idx = _selected_idx
+    if lcd and opts and opts[0] != "...":
+        try:
+            lcd.show_options(opts, idx)
+        except Exception as e:
+            _log("options display error: " + str(e))
+
 def _scroll_worker(line1, line2):
+    """Legacy scroll worker — still used by calibrate test."""
     if lcd:
         try:
             lcd.scroll(line1, line2, stop=_scroll_stop)
@@ -189,11 +208,14 @@ def _handle_player_input(text):
         else:
             lcd.set_mood("normal")
 
-    _push_echo(line1, line2)
+    _push_echo(line1, line2, show_time=5.0)
 
+    # Update options for touch sensor (LCD shows them after reply)
     mood = emotional_options.detect_mood(text)
     opts = emotional_options.get_options(mood, count=3)
-    _push_options(opts)
+    with _lock:
+        _options = opts
+        _selected_idx = 0
 
 # -- Ghost messages --
 def _ghost_loop():
@@ -494,11 +516,15 @@ def api_send():
     if config["send_count"] >= _ONE_LAST_LINE_THRESHOLD:
         _one_last_line_active = True
 
-    _push_echo(line1, line2)
+    _push_echo(line1, line2, show_time=5.0)
 
+    # Also update options for touch sensor (but don't push to LCD immediately)
     mood = emotional_options.detect_mood(text)
     opts = emotional_options.get_options(mood, count=3)
-    _push_options(opts)
+    with _lock:
+        global _options
+        _options = opts
+        _selected_idx = 0
 
     return jsonify({
         "line1": line1,
@@ -591,10 +617,12 @@ def api_random_memory():
 @app.route("/api/reset", methods=["POST"])
 def api_reset():
     _stop_bg()
-    global _one_last_line_active
+    global _one_last_line_active, _options
     _one_last_line_active = False
     config["send_count"] = 0
     save_config(config)
+    _options = ["...", "...", "..."]
+    _selected_idx = 0
     if lcd:
         lcd.set_mood("normal")
         lcd.show_home()
@@ -603,14 +631,16 @@ def api_reset():
 @app.route("/api/emergency", methods=["POST"])
 def api_emergency():
     _stop_bg()
-    global _one_last_line_active
+    global _one_last_line_active, _options
     _one_last_line_active = False
+    _options = ["...", "...", "..."]
     if lcd:
         lcd.clear()
         lcd.bl_on()
         lcd.show("close the door", "leave light on")
         time.sleep(2)
         lcd.clear()
+        lcd.bl_on()
     return jsonify({"ok": True})
 
 @app.route("/api/recover", methods=["POST"])
@@ -625,6 +655,16 @@ def api_recover():
     except Exception:
         pass
     return jsonify({"ok": True, "cleaned": cleaned})
+
+
+# ============================================================
+#  API: Journal Clear
+# ============================================================
+
+@app.route("/api/journal/clear", methods=["POST"])
+def api_journal_clear():
+    echo_ai._write_journal([])
+    return jsonify({"ok": True, "message": "memories cleared"})
 
 
 # ============================================================

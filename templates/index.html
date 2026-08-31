@@ -85,9 +85,12 @@
   <button class="dng" onclick="resetGame()" style="flex:1; margin-top:0;">close the door</button>
 </div>
 
-<div style="margin-top:8px;">
-  <button class="sec" onclick="recoverCrash()" style="font-size:8px; padding:6px; opacity:0.5;">
-    recover from crash
+<div style="display:flex; gap:8px; margin-top:6px;">
+  <button class="sec" onclick="clearJournal()" style="flex:1; margin-top:0; font-size:8px; padding:8px; opacity:0.5;">
+    forget everything
+  </button>
+  <button class="sec" onclick="recoverCrash()" style="flex:1; margin-top:0; font-size:8px; padding:8px; opacity:0.5;">
+    recover
   </button>
 </div>
 
@@ -318,10 +321,12 @@
     const lcd = document.getElementById('lcd-preview');
 
     if (elapsed > 300) {
+      // 5 minutes: whisper + flicker
       showWhisper(whispers[Math.min(whisperCount, whispers.length-1)]);
       if (whisperCount < whispers.length - 1) whisperCount++;
       lcd.classList.add('flicker');
-    } else if (elapsed > 60) {
+    } else if (elapsed > 120) {
+      // 2 minutes: gentle flicker
       lcd.classList.add('flicker');
     } else {
       lcd.classList.remove('flicker');
@@ -383,6 +388,16 @@
     } catch(e) {}
   }
 
+  async function clearJournal() {
+    if (!confirm('ERIN will forget everything. Are you sure?')) return;
+    try {
+      await fetch('/api/journal/clear', {method: 'POST'});
+      renderSignal(0);
+      refreshStatus();
+      document.getElementById('echo-box').style.display = 'none';
+    } catch(e) {}
+  }
+
   // Initialize
   refreshStatus();
   fetchOptions();
@@ -390,7 +405,7 @@
   setMode('options');
   lastSendTime = Date.now();
 
-  setInterval(fetchOptions, 2000);
+  setInterval(fetchOptions, 3000);
   setInterval(checkIdle, 10000);
   document.getElementById('input').addEventListener('keydown', e => {
     if (e.key === 'Enter') sendText();

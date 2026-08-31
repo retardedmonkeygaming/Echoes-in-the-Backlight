@@ -74,13 +74,15 @@ class LCD:
         if p is None or not _ON_PI: return
         for _ in range(cycles):
             for d in range(1, 11):
-                if stop and stop.is_set(): return
+                if stop and stop.is_set(): break
                 GPIO.output(p, GPIO.LOW); time.sleep(d * step)
                 GPIO.output(p, GPIO.HIGH); time.sleep((10 - d) * step * 2)
             for d in range(10, 0, -1):
-                if stop and stop.is_set(): return
+                if stop and stop.is_set(): break
                 GPIO.output(p, GPIO.LOW); time.sleep(d * step)
                 GPIO.output(p, GPIO.HIGH); time.sleep((10 - d) * step * 2)
+        # ALWAYS leave backlight ON after breathing
+        GPIO.output(p, GPIO.LOW)
 
     # ── mood backlight ──────────────────────────────────────────────
     def set_mood(self, mood):
@@ -238,11 +240,14 @@ class LCD:
             self.write_row(1, line2)
             self.modem_tone()
             self.flash_led(0.03)
-            # wait with breathing
+            # Wait while showing text, with breathing
             self.bl_breathing(cycles=1, step=0.04, stop=stop)
+            # Ensure backlight stays ON after display
+            self.bl_on()
             for _ in range(int(page_delay * 10)):
                 if stop and stop.is_set(): return
                 time.sleep(0.1)
+            self.bl_on()
 
     def scroll_long(self, text, page_delay=3.0, breathing=True, stop=None, cb=None):
         """For longer text: split into 16-char lines, show 2 at a time."""
@@ -263,11 +268,13 @@ class LCD:
             if cb: cb("\n".join(pad), idx)
             if breathing and idx < len(pages) - 1:
                 self.bl_breathing(cycles=1, step=0.04, stop=stop)
+                self.bl_on()
             else:
                 wait = page_delay if idx < len(pages)-1 else page_delay + 1.0
                 for _ in range(int(wait * 10)):
                     if stop and stop.is_set(): return
                     time.sleep(0.1)
+                self.bl_on()
 
     # ── mirror typing ───────────────────────────────────────────────
     def mirror_start(self):
