@@ -255,7 +255,7 @@ def _call_gemini(player_input: str, player_name: str) -> dict:
         "\n"
         "line1: your first line (max 15 chars, melancholic, poetic)\n"
         "line2: your second line (max 15 chars, end with a question)\n"
-        "reply now:"
+        "reply now - ONLY the JSON object, no markdown, no explanation:"
     )
 
     # Try models in order
@@ -269,15 +269,6 @@ def _call_gemini(player_input: str, player_name: str) -> dict:
                 config=types.GenerateContentConfig(
                     temperature=0.9,
                     max_output_tokens=300,
-                    response_mime_type="application/json",
-                    response_schema={
-                        "type": "object",
-                        "properties": {
-                            "line1": {"type": "string"},
-                            "line2": {"type": "string"}
-                        },
-                        "required": ["line1", "line2"]
-                    },
                 ),
             )
             # Inspect full response for debugging
@@ -311,19 +302,32 @@ def _parse_response(raw: str, player_input: str) -> tuple:
         text = text.strip()
         if len(text) <= 16:
             return text
-        # Try to find last space before 16
         cut = text[:16]
         sp = cut.rfind(" ")
-        if sp > 8:  # good break point
+        if sp > 8:
             return text[:sp]
         return cut
 
-    # Strip markdown fences
     raw = raw.strip()
-    if raw.startswith(chr(96)*3):
-        lines = raw.split(chr(10))
-        lines = [l for l in lines if not l.strip().startswith(chr(96)*3)]
-        raw = chr(10).join(lines).strip()
+
+    # Strip markdown fences (```json ... ```)
+    if "```" in raw:
+        # Remove everything before first ``` and after last ```
+        parts = raw.split("```")
+        if len(parts) >= 3:
+            raw = parts[1].strip()
+            # Remove "json" prefix if present
+            if raw.lower().startswith("json"):
+                raw = raw[4:].strip()
+
+    # Strip preamble like "Here is the JSON requested:"
+    for prefix in ["Here is", "The JSON", "JSON:", "Response:", "Output:"]:
+        if raw.lower().startswith(prefix.lower()):
+            # Find the first {
+            idx = raw.find("{")
+            if idx >= 0:
+                raw = raw[idx:]
+                break
 
     # Try JSON parse
     try:
@@ -333,14 +337,14 @@ def _parse_response(raw: str, player_input: str) -> tuple:
         if line1:
             return line1, line2
     except (json.JSONDecodeError, KeyError, TypeError) as e:
-        _log(f"JSON parse failed: {e}")
+        _log("JSON parse failed: " + str(e))
 
     # Try to find JSON in the text
     try:
-        start = raw.find("{")
-        end = raw.find("}") + 1
-        if start >= 0 and end > start:
-            data = json.loads(raw[start:end])
+        start_idx = raw.find("{")
+        end_idx = raw.rfind("}") + 1
+        if start_idx >= 0 and end_idx > start_idx:
+            data = json.loads(raw[start_idx:end_idx])
             line1 = _fit16(str(data.get("line1", "")))
             line2 = _fit16(str(data.get("line2", "")))
             if line1:
@@ -348,14 +352,13 @@ def _parse_response(raw: str, player_input: str) -> tuple:
     except Exception:
         pass
 
-    # Fallback: split lines
-    # Fallback: split lines
+    # Fallback: take first two non-empty lines
     lines = [l.strip() for l in raw.split("\n") if l.strip()]
     if not lines:
         lines = [raw]
 
-    line1 = lines[0][:16] if lines else "... I'm here"
-    line2 = lines[1][:16] if len(lines) > 1 else ""
+    line1 = _fit16(lines[0]) if lines else "... I am here"
+    line2 = _fit16(lines[1]) if len(lines) > 1 else ""
     return line1, line2
 
 
