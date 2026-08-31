@@ -1,8 +1,3 @@
-"""
-emotional_options.py - Pre-made options for ERIN.
-Every option <=14 chars (2 chars reserved for "> " marker).
-"""
-
 OPENING = ["hello...", "who is there", "are you real", "stay with me", "don't go"]
 SAD = ["I feel lost", "I miss someone", "it hurts tonight", "I can't sleep", "why am I here", "hold me close", "I'm so tired", "the dark wins"]
 HOPEFUL = ["maybe tomorrow", "I want to try", "there is light", "I still believe", "one more chance", "I'll stay a bit", "tell me more", "I'm listening"]

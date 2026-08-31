@@ -7,99 +7,29 @@
   <a href="/config">settings</a>
   <a href="/calibrate">calibrate</a>
 </div>
-<div class="sec" style="margin-top:0;">ERIN's Journal</div>
-<p class="ht" style="margin-bottom:16px;">every word you spoke. every word she answered.</p>
-<label>search memories</label>
-<div style="display:flex; gap:6px;">
-  <input type="text" id="search-q" placeholder="find an old memory..." style="flex:1;">
-  <button class="sec" onclick="searchMemory()" style="flex:none; width:80px; margin-top:0;">search</button>
-</div>
-<div style="display:flex; gap:6px; margin-top:12px;">
-  <button class="sec" onclick="loadRecent()" style="flex:1; margin-top:0;">recent</button>
-  <button class="sec" onclick="loadAll()" style="flex:1; margin-top:0;">all</button>
-  <button class="sec" onclick="loadCapsule()" style="flex:1; margin-top:0;">capsule</button>
-  <button class="sec" onclick="exportAll()" style="flex:1; margin-top:0;">export</button>
-</div>
-<div class="st" id="entry-count" style="margin-top:8px;">loading...</div>
-<div id="memory-list" style="margin-top:12px;"></div>
-<div id="capsule-view" style="display:none; margin-top:12px; padding:12px; background:#1a1810; border:1px solid var(--bd); border-radius:3px;">
-  <div style="font-size:9px; text-transform:uppercase; letter-spacing:2px; color:var(--dm); margin-bottom:8px;">Time Capsule</div>
-  <div id="capsule-content"></div>
-  <div style="display:flex; gap:6px; margin-top:8px;">
-    <button class="sec" onclick="capsulePrev()" style="flex:1; margin-top:0;">older</button>
-    <button class="sec" onclick="capsuleNext()" style="flex:1; margin-top:0;">newer</button>
-  </div>
-</div>
+<div class="sec">SOUL JOURNAL</div>
+<p class="ht">Every word you've spoken. Every echo ERIN answered.</p>
+
+<input type="text" id="search" placeholder="find an old echo..." style="width:100%;margin-top:12px;padding:10px;background:var(--sf);border:1px solid var(--bd);border-radius:3px;color:var(--tx);">
+<button onclick="searchJournal()" style="margin-top:8px;">search</button>
+
+<div id="journal-list"></div>
+
 <script>
-  let capsuleSlot = 0;
-  function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-  async function loadRecent() {
-    hideCapsule();
-    const l = document.getElementById('memory-list');
-    l.innerHTML = '<div class="st">loading...</div>';
-    try { const r = await fetch('/api/journal/recent?n=20'); const j = await r.json(); renderEntries(j.entries); }
-    catch(e) { l.innerHTML = '<div class="st er">error</div>'; }
-  }
-  async function loadAll() {
-    hideCapsule();
-    const l = document.getElementById('memory-list');
-    l.innerHTML = '<div class="st">loading...</div>';
-    try { const r = await fetch('/api/journal/recent?n=200'); const j = await r.json(); renderEntries(j.entries); }
-    catch(e) { l.innerHTML = '<div class="st er">error</div>'; }
-  }
-  async function searchMemory() {
-    const q = document.getElementById('search-q').value.trim();
-    if (!q) return loadRecent();
-    hideCapsule();
-    const l = document.getElementById('memory-list');
-    l.innerHTML = '<div class="st">searching...</div>';
-    try { const r = await fetch('/api/journal/search?q=' + encodeURIComponent(q)); const j = await r.json(); renderEntries(j.entries); }
-    catch(e) { l.innerHTML = '<div class="st er">error</div>'; }
-  }
-  function renderEntries(entries) {
-    const l = document.getElementById('memory-list');
-    const c = document.getElementById('entry-count');
-    if (!entries || !entries.length) { l.innerHTML = '<div class="st">no memories yet - speak to ERIN</div>'; c.textContent = '0 entries'; return; }
-    c.textContent = entries.length + ' entries';
-    let h = '';
-    for (const e of entries) {
-      const role = e.role === 'player' ? 'you' : 'ERIN';
-      const color = e.role === 'player' ? 'var(--tx)' : 'var(--ac)';
-      const ts = e.timestamp ? e.timestamp.split('T')[1] || '' : '';
-      h += '<div style="padding:10px 12px; margin-bottom:4px; background:#1a1810; border:1px solid var(--bd); border-radius:3px; border-left:2px solid ' + (e.role === 'player' ? 'var(--dm)' : 'var(--gw)') + ';">';
-      h += '<span style="color:var(--dm); font-size:8px;">[' + escapeHtml(ts) + ']</span> ';
-      h += '<span style="color:var(--dm); font-size:9px; text-transform:uppercase;">' + role + ':</span> ';
-      h += '<span style="color:' + color + '; font-size:11px;">' + escapeHtml(e.text) + '</span>';
-      h += '</div>';
-    }
-    l.innerHTML = h;
-  }
-  async function loadCapsule() {
-    capsuleSlot = 0;
-    document.getElementById('memory-list').innerHTML = '';
-    document.getElementById('capsule-view').style.display = 'block';
-    await fetchCapsule();
-  }
-  function hideCapsule() { document.getElementById('capsule-view').style.display = 'none'; }
-  async function fetchCapsule() {
-    const c = document.getElementById('capsule-content');
-    c.innerHTML = '<div style="color:var(--dm); font-size:10px;">loading...</div>';
-    try {
-      const r = await fetch('/api/capsule/' + capsuleSlot);
-      if (!r.ok) { c.innerHTML = '<div style="color:var(--dm); font-size:10px;">no memory at slot ' + capsuleSlot + '</div>'; return; }
-      const j = await r.json();
-      let h = '<div style="font-size:8px; color:var(--dm); margin-bottom:6px;">slot ' + j.slot + ' of ' + j.total_slots + '</div>';
-      for (const e of j.entries) {
-        const role = e.role === 'player' ? 'you' : 'ERIN';
-        const color = e.role === 'player' ? 'var(--tx)' : 'var(--ac)';
-        h += '<div style="margin-top:6px; font-size:11px;"><span style="color:var(--dm); font-size:9px;">' + role + ':</span> <span style="color:' + color + ';">' + escapeHtml(e.text) + '</span></div>';
-      }
-      c.innerHTML = h;
-    } catch(e) { c.innerHTML = '<div style="color:var(--dg); font-size:10px;">error</div>'; }
-  }
-  function capsulePrev() { if (capsuleSlot > 0) { capsuleSlot--; fetchCapsule(); } }
-  function capsuleNext() { capsuleSlot++; fetchCapsule(); }
-  function exportAll() { window.open('/api/journal/export', '_blank'); }
-  loadRecent();
+async function searchJournal(){
+  const q = document.getElementById('search').value.trim();
+  const r = await fetch('/api/journal/search?q='+encodeURIComponent(q));
+  const j = await r.json();
+  renderJournal(j.entries || []);
+}
+function renderJournal(entries){
+  const list = document.getElementById('journal-list');
+  list.innerHTML = entries.map(e => `
+    <div style="margin-top:12px;padding:12px;background:var(--sf);border:1px solid var(--bd);border-radius:3px;">
+      <div style="font-size:9px;color:var(--dm);">${e.timestamp}</div>
+      <div><b>${e.role}:</b> ${e.text}</div>
+    </div>
+  `).join('');
+}
 </script>
 {% endblock %}
