@@ -212,6 +212,9 @@ def send_to_echo(player_input: str, player_name: str = "friend") -> dict:
         return _generate_fallback(player_input)
 
 
+# Models in order of preference (newest first)
+_MODELS = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash-lite"]
+
 def _call_gemini(player_input: str, player_name: str) -> dict:
     from google.genai import types
 
@@ -232,22 +235,32 @@ def _call_gemini(player_input: str, player_name: str) -> dict:
 
     system_prompt = build_system_prompt(full_ctx)
 
-    _log("Calling Gemini API...")
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=player_input,
-        config=types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            temperature=0.92,
-            max_output_tokens=150,
-        ),
-    )
+    # Try models in order until one works
+    last_error = None
+    for model in _MODELS:
+        try:
+            _log(f"Trying model: {model}")
+            response = client.models.generate_content(
+                model=model,
+                contents=player_input,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=0.92,
+                    max_output_tokens=150,
+                ),
+            )
+            raw = response.text.strip() if response.text else ""
+            _log(f"Raw response: {raw[:100]}")
+            line1, line2 = _parse_response(raw, player_input)
+            _log(f"Parsed: [{line1}] [{line2}]")
+            return {"line1": line1, "line2": line2}
+        except Exception as e:
+            last_error = e
+            _log(f"Model {model} failed: {e}")
+            continue
 
-    raw = response.text.strip() if response.text else ""
-    _log(f"Raw response: {raw[:100]}")
-    line1, line2 = _parse_response(raw, player_input)
-    _log(f"Parsed: [{line1}] [{line2}]")
-    return {"line1": line1, "line2": line2}
+    # All models failed
+    raise last_error
 
 
 def _parse_response(raw: str, player_input: str) -> tuple:
