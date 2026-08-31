@@ -64,7 +64,16 @@ def export_journal_text():
     lines.append(f"\nTotal: {len(entries)} messages")
     return "\n".join(lines)
 
-# (the rest of the file stays almost the same — only the prompt and fallback changed to ERIN voice)
+def _load_journal_context(last_n=5):
+    entries = _read_journal()
+    if not entries: return ""
+    recent = entries[-last_n:]
+    lines = []
+    for e in recent:
+        role = "Player" if e.get("role") == "player" else "ERIN"
+        lines.append(f"{role}: {e.get('text','')}")
+    return "\n".join(lines)
+
 def send_to_echo(player_input, player_name="friend"):
     _log(f"Player says: {player_input[:60]}")
     try:
@@ -73,7 +82,6 @@ def send_to_echo(player_input, player_name="friend"):
         _log(f"ERIN ERROR: {type(e).__name__}: {e}")
         return _generate_fallback(player_input)
 
-# NEW: ERIN voice prompt (lonely woman, never AI)
 def _call_gemini(player_input, player_name):
     from google import genai
     from google.genai import types
@@ -89,14 +97,41 @@ def _call_gemini(player_input, player_name):
         "Your memories:\n" + memory + "\n"
         "The player just said: " + player_input[:80] + "\n\n"
         "REPLY RULES:\n"
-        "- ONLY reply with a JSON object: {\"line1\": \"...\", \"line2\": \"?\"}\n"
-        "- Each line max 15 characters. Start with ...\n"
-        "- Speak only as ERIN. Never say AI. Never break character.\n"
-        "Now reply with ONLY the JSON:"
+        "- ONLY reply with a JSON object exactly like this: {\"line1\": \"...\", \"line2\": \"?\"}\n"
+        "- Each line max 15 characters. Start line1 with ...\n"
+        "- Speak ONLY as ERIN. Never say AI. Never break character.\n"
+        "Now reply with ONLY the JSON object:"
     )
 
-    # (rest of the function stays the same — models, parser, fallback)
-    # The fallback was updated with ERIN-specific lines below
+    for _ in range(3):  # retry on failure
+        try:
+            response = client.models.generate_content(
+                model="gemini-3.6-flash",
+                contents=prompt,
+                config=types.GenerateContentConfig(temperature=0.85, max_output_tokens=180)
+            )
+            raw = response.text.strip() if hasattr(response, 'text') else ""
+            if raw.startswith("```json"):
+                raw = raw[7:-3]
+            elif raw.startswith("```"):
+                raw = raw[3:-3]
+            raw = raw.strip()
+
+            # Try JSON first
+            try:
+                d = json.loads(raw)
+                return {"line1": d.get("line1", "...")[:15], "line2": d.get("line2", "?")[:15]}
+            except:
+                pass
+
+            # Fallback: find line1 and line2
+            m1 = re.search(r'"line1"\s*:\s*"([^"]*)"', raw)
+            m2 = re.search(r'"line2"\s*:\s*"([^"]*)"', raw)
+            if m1:
+                return {"line1": m1.group(1)[:15], "line2": m2.group(1)[:15] if m2 else "?"}
+        except:
+            pass
+
     return _generate_fallback(player_input)
 
 def _generate_fallback(player_input):

@@ -88,8 +88,13 @@
   let lastSendTime = Date.now();
   let whisperCount = 0;
   const whispers = ["you have been quiet...", "I miss hearing your voice", "the room feels empty", "are you still there?", "I can hear the static", "please come back", "the light is dimming", "I left the door open", "do not forget me", "I am still waiting"];
-  // ... (rest of your JS code stays the same — it already has the idle check)
-
-  // The idle check and whisper are already perfect from before — they will now trigger ERIN's lines.
+  function showEchoReply(line1, line2) {
+  document.getElementById('echo-r0').textContent = line1 || '';
+  document.getElementById('echo-r1').textContent = line2 || '';
+  document.getElementById('echo-box').style.display = 'block';
+  document.getElementById('lcd-r0').textContent = line1 || '';
+  document.getElementById('lcd-r1').textContent = line2 || '';
+  document.getElementById('lcd-preview').classList.remove('flicker');
+}
 </script>
 {% endblock %}
