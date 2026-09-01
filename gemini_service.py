@@ -582,7 +582,11 @@ def _call_gemini(player_input, player_name, personality=None):
                 l1 = _ensure_ellipsis(parsed["line1"])
                 l2 = _sanitise(parsed["line2"])
                 _log(f"Result: [{l1}] [{l2}]")
-                return {"line1": l1, "line2": l2}
+                # Also store raw untruncated lines for auto-scroll
+                raw_l1 = _clean_value(str(parsed["line1"]))
+                raw_l2 = _clean_value(str(parsed["line2"]))
+                full_text = (raw_l1 + " " + raw_l2).strip()
+                return {"line1": l1, "line2": l2, "raw": full_text}
 
             _log("Parse failed, trying next model")
 
@@ -608,25 +612,25 @@ def _generate_fallback(player_input, personality=None):
     low = player_input.lower().strip()
 
     if len(low) <= 2:
-        return {"line1": fb["short"][0][0], "line2": fb["short"][0][1]}
+        return {"line1": fb["short"][0][0], "line2": fb["short"][0][1], "raw": fb["short"][0][0] + " " + fb["short"][0][1]}
     if any(w in low for w in ["bye", "go", "leave", "quit", "end"]):
         t = random.choice(fb["farewell"])
-        return {"line1": t[0], "line2": t[1]}
+        return {"line1": t[0], "line2": t[1], "raw": t[0] + " " + t[1]}
     if any(w in low for w in ["hello", "hi", "hey"]):
         t = random.choice(fb["greeting"])
-        return {"line1": t[0], "line2": t[1]}
+        return {"line1": t[0], "line2": t[1], "raw": t[0] + " " + t[1]}
     if any(w in low for w in ["love", "miss", "need", "want"]):
         t = random.choice(fb["intimate"])
-        return {"line1": t[0], "line2": t[1]}
+        return {"line1": t[0], "line2": t[1], "raw": t[0] + " " + t[1]}
     if any(w in low for w in ["sad", "hurt", "cry", "alone", "dark"]):
         t = random.choice(fb["sad"])
-        return {"line1": t[0], "line2": t[1]}
+        return {"line1": t[0], "line2": t[1], "raw": t[0] + " " + t[1]}
     if any(w in low for w in ["who", "what", "why", "how"]):
         t = random.choice(fb["curious"])
-        return {"line1": t[0], "line2": t[1]}
+        return {"line1": t[0], "line2": t[1], "raw": t[0] + " " + t[1]}
 
     t = random.choice(fb["default"])
-    return {"line1": t[0], "line2": t[1]}
+    return {"line1": t[0], "line2": t[1], "raw": t[0] + " " + t[1]}
 
 
 # ── Self-test ───────────────────────────────────────────────

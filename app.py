@@ -230,6 +230,15 @@ def _scroll_long_worker(text):
             lcd.scroll_long(text, stop=_scroll_stop)
         except Exception as e:
             _log("long scroll error: " + str(e))
+    # After scrolling, show options
+    with _lock:
+        opts = list(_options)
+        idx = _selected_idx
+    if lcd and opts and opts[0] != "...":
+        try:
+            lcd.show_options(opts, idx)
+        except Exception as e:
+            _log("options display error: " + str(e))
     global _display_ready
     with _display_ready_lock:
         _display_ready = True
@@ -319,7 +328,12 @@ def _handle_player_input(text):
         else:
             lcd.set_mood("normal")
 
-    _push_echo(line1, line2, show_time=4.0)
+    # Check if reply is longer than 2 lines — auto-scroll if so
+    raw_text = str(reply.get("raw", line1 + " " + line2))
+    if len(raw_text) > 32:
+        _push_long_text(raw_text)
+    else:
+        _push_echo(line1, line2, show_time=4.0)
 
     # Update options for touch sensor
     mood = emotional_options.detect_mood(text)
@@ -726,7 +740,12 @@ def api_send():
     if config["send_count"] >= _ONE_LAST_LINE_THRESHOLD:
         _one_last_line_active = True
 
-    _push_echo(line1, line2, show_time=4.0)
+    # Check if reply is longer than 2 lines — auto-scroll if so
+    raw_text = str(reply.get("raw", line1 + " " + line2))
+    if len(raw_text) > 32:
+        _push_long_text(raw_text)
+    else:
+        _push_echo(line1, line2, show_time=4.0)
 
     # Update options for touch sensor
     mood = emotional_options.detect_mood(text)
