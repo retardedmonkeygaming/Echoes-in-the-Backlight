@@ -1,22 +1,74 @@
 {% extends "base.html" %}
-{% block title %}Room Settings - The Last Apartment{% endblock %}
+{% block title %}Settings - The Last Apartment{% endblock %}
 {% block content %}
 <div class="nav">
   <a href="/">the room</a>
   <a href="/journal">memories</a>
   <a class="active" href="/config">settings</a>
-  <a href="/calibrate">calibrate</a>
+  <a href="/calibrate">test the room</a>
 </div>
-<label>your name (ERIN will remember)</label>
-<input type="text" id="player-name" placeholder="visitor" value="{{ config.get('player_name', 'friend') }}">
-<div class="sec">Room Settings</div>
-<!-- (the grid of pins is kept, but labels are simple) -->
-<div class="grid"> ... (your original pins) </div>
-<button onclick="saveConfig()">save settings</button>
-<div class="sec">Emergency</div>
-<button class="dng" onclick="emergencyReset()">close the door and leave the light on</button>
+<label>your name (she will remember)</label>
+<input type="text" id="player-name" placeholder="a name she can hold" value="{{ config.get("player_name", "friend") }}">
+<div class="sec">the wires behind the wall</div>
+<label>RS</label>
+<input type="number" id="pin-RS" value="{{ config.get("pin_map", {}).get("RS", 5) }}">
+<label>RW</label>
+<input type="number" id="pin-RW" value="{{ config.get("pin_map", {}).get("RW", 6) }}">
+<label>E</label>
+<input type="number" id="pin-E" value="{{ config.get("pin_map", {}).get("E", 13) }}">
+<label>D4</label>
+<input type="number" id="pin-D4" value="{{ config.get("pin_map", {}).get("D4", 17) }}">
+<label>D5</label>
+<input type="number" id="pin-D5" value="{{ config.get("pin_map", {}).get("D5", 22) }}">
+<label>D6</label>
+<input type="number" id="pin-D6" value="{{ config.get("pin_map", {}).get("D6", 23) }}">
+<label>D7</label>
+<input type="number" id="pin-D7" value="{{ config.get("pin_map", {}).get("D7", 24) }}">
+<label>the light</label>
+<input type="number" id="pin-BACKLIGHT" value="{{ config.get("pin_map", {}).get("BACKLIGHT", 21) }}">
+<label>the touch</label>
+<input type="number" id="pin-TOUCH" value="{{ config.get("pin_map", {}).get("TOUCH", 27) }}">
+<label>her signal</label>
+<input type="number" id="pin-LED" value="{{ config.get("pin_map", {}).get("LED", 26) }}">
+<label>the old tone</label>
+<input type="number" id="pin-BUZZER" value="{{ config.get("pin_map", {}).get("BUZZER", "") }}">
+<button onclick="saveConfig()">the wires remember</button>
+<div class="sec">close the door</div>
+<button class="dng" onclick="emergencyReset()">leave the light on for me</button>
 <div class="st" id="status"></div>
 <script>
-  // emergency and saveConfig functions updated to "close the door" language
+async function saveConfig() {
+  var pins = {};
+  var ids = ['RS','RW','E','D4','D5','D6','D7','BACKLIGHT','TOUCH','LED','BUZZER'];
+  for (var i = 0; i < ids.length; i++) {
+    var v = document.getElementById('pin-' + ids[i]).value;
+    pins[ids[i]] = v === '' ? null : parseInt(v);
+  }
+  var data = {
+    player_name: document.getElementById('player-name').value || 'friend',
+    pin_map: pins
+  };
+  try {
+    var r = await fetch('/api/config', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)});
+    var j = await r.json();
+    var el = document.getElementById('status');
+    el.textContent = j.ok ? 'she remembers now...' : 'I cannot fix this';
+    el.className = 'st ' + (j.ok ? 'ok' : 'er');
+  } catch(e) {
+    document.getElementById('status').textContent = 'something broke...';
+  }
+}
+async function emergencyReset() {
+  if (!confirm('close the door and leave the light on?')) return;
+  try {
+    var r = await fetch('/api/emergency', {method:'POST'});
+    var j = await r.json();
+    var el = document.getElementById('status');
+    el.textContent = j.ok ? 'the door is closed. the light stays on.' : 'it did not work';
+    el.className = 'st ' + (j.ok ? 'ok' : 'er');
+  } catch(e) {
+    document.getElementById('status').textContent = 'something broke...';
+  }
+}
 </script>
 {% endblock %}

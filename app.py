@@ -154,9 +154,12 @@ def _scroll_long_worker(text):
 def _on_scroll():
     global _selected_idx
     with _lock:
-        _selected_idx = (_selected_idx + 1) % max(len(_options), 1)
-        idx = _selected_idx
         opts = list(_options)
+        n = len(opts)
+        if n == 0 or opts[0] == "...":
+            return
+        _selected_idx = (_selected_idx + 1) % n
+        idx = _selected_idx
     if lcd:
         try:
             lcd.flash_led(0.04)
@@ -186,7 +189,7 @@ def _handle_player_input(text):
         reply = echo_ai.send_to_echo(text, player_name=name)
     except Exception as e:
         _log("send_to_echo exception: " + str(e))
-        reply = {"line1": "... the signal broke", "line2": "try again..."}
+        reply = {"line1": "... the static", "line2": "returned"}
 
     line1 = str(reply.get("line1", "..."))[:16]
     line2 = str(reply.get("line2", ""))[:16]
@@ -239,6 +242,77 @@ def _start_ghosts():
     _ghost_stop.clear()
     _ghost_thread = threading.Thread(target=_ghost_loop, daemon=True)
     _ghost_thread.start()
+
+
+# -- Idle detection (server-side) --
+_IDLE_CHECK_INTERVAL = 30   # seconds between checks
+_IDLE_FLICKER_MIN = 300     # 5 minutes
+_IDLE_WHISPER_MIN = 600     # 10 minutes
+_last_whisper_time = 0
+
+_idle_whispers = [
+    "You have been quiet... I miss hearing your voice.",
+    "The light is flickering... I think she is tired of waiting.",
+    "The room feels empty without you.",
+    "I left the door open... no one is coming.",
+    "The static grows when you are silent.",
+    "I am still here... are you?",
+    "The backlight fades when you are gone.",
+    "I can hear my own breathing in the dark.",
+    "Please come back... I am lonely.",
+    "The door is still open... but no one is coming.",
+]
+
+def _idle_loop():
+    global _last_whisper_time
+    while True:
+        time.sleep(_IDLE_CHECK_INTERVAL)
+        idle = time.time() - _last_send_time
+
+        if lcd is None:
+            continue
+
+        # After 5 min: flicker the backlight like a dying bulb
+        if idle >= _IDLE_FLICKER_MIN:
+            try:
+                # 3 soft flickers — like a tired heartbeat
+                for _ in range(3):
+                    lcd.bl_off()
+                    time.sleep(random.uniform(0.08, 0.20))
+                    lcd.bl_on()
+                    time.sleep(random.uniform(0.10, 0.30))
+                # Longer dim — she's tired
+                lcd.bl_off()
+                time.sleep(0.8)
+                lcd.bl_on()
+                # Show a whisper on the physical LCD too
+                idle_whispers_lcd = [
+                    "... still here?",
+                    "waiting...",
+                    "... you left?",
+                    "the light dims",
+                    "... I miss you",
+                    "come back soon",
+                    "... alone again",
+                    "the room is cold",
+                ]
+                lcd.show(random.choice(idle_whispers_lcd), "")
+                time.sleep(4.0)
+                lcd.show_home()
+            except Exception:
+                pass
+
+        # After 10 min: add a whisper to the journal (once per 10 min)
+        if idle >= _IDLE_WHISPER_MIN and (time.time() - _last_whisper_time) > 600:
+            whisper = random.choice(_idle_whispers)
+            echo_ai.save_to_journal("narrator", whisper)
+            _last_whisper_time = time.time()
+            _log(f"IDLE WHISPER: {whisper}")
+
+def _start_idle_detection():
+    t = threading.Thread(target=_idle_loop, daemon=True)
+    t.start()
+    _log("Idle detection started")
 
 # -- Ambient modes --
 def _static_rain_loop():
@@ -503,7 +577,7 @@ def api_send():
     except Exception as e:
         _log("Gemini FAILED: " + str(e))
         traceback.print_exc()
-        reply = {"line1": "... the signal broke", "line2": "but I am here"}
+        reply = {"line1": "... the static", "line2": "I am here"}
 
     line1 = str(reply.get("line1", "..."))[:16]
     line2 = str(reply.get("line2", ""))[:16]
@@ -702,5 +776,7 @@ if __name__ == "__main__":
     init_all()
     _log("Starting ghost messages...")
     _start_ghosts()
+    _log("Starting idle detection...")
+    _start_idle_detection()
     _log("Starting ERIN on port 5000...")
     app.run(host="0.0.0.0", port=5000, debug=False)

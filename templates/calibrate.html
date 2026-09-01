@@ -1,19 +1,104 @@
 {% extends "base.html" %}
-{% block title %}Calibrate - The Last Apartment{% endblock %}
+{% block title %}Test the Room - The Last Apartment{% endblock %}
 {% block content %}
-<div class="nav"> ... (same) </div>
-<div class="sec">LCD Test</div>
+<div class="nav">
+  <a href="/">the room</a>
+  <a href="/journal">memories</a>
+  <a href="/config">settings</a>
+  <a class="active" href="/calibrate">test the room</a>
+</div>
+
+<div class="sec">write on the screen</div>
 <label>line 1</label>
 <input type="text" id="line1" value="the light is on" maxlength="16">
 <label>line 2</label>
 <input type="text" id="line2" value="are you there?" maxlength="16">
-<button onclick="showOnLCD()" style="flex:2;">show on screen</button>
-<button class="sec" onclick="clearLCD()" style="flex:1;margin-top:0;">clear</button>
-<!-- ... rest of the page is the same, but all status messages changed to "the door is closed" style -->
-<div class="sec">Emergency</div>
-<button class="dng" onclick="emergencyReset()">close the door</button>
+<div style="display:flex;gap:8px;">
+  <button onclick="showOnLCD()" style="flex:2;margin-top:0;">show her</button>
+  <button class="sec" onclick="clearLCD()" style="flex:1;margin-top:0;">erase</button>
+</div>
+<div class="st" id="lcd-status"></div>
+
+<div class="sec">the light</div>
+<div style="display:flex;gap:8px;">
+  <button onclick="blOn()" style="flex:1;margin-top:0;">light on</button>
+  <button onclick="blOff()" style="flex:1;margin-top:0;">light off</button>
+  <button onclick="blBreathe()" style="flex:1;margin-top:0;">breathe</button>
+</div>
+
+<div class="sec">feel the touch</div>
+<button onclick="touchPing()">tap the wall</button>
+<div class="st" id="touch-status">waiting for you...</div>
+<label>how long to wait for a second touch (ms)</label>
+<input type="number" id="double-window" value="350" min="100" max="1000" step="50">
+<label>how long to ignore bouncing (ms)</label>
+<input type="number" id="bounce-time" value="50" min="20" max="200" step="10">
+<button onclick="saveTouch()" style="margin-top:8px;">remember this</button>
+
+<div class="sec">the echoes</div>
+<button onclick="testScroll()">let her speak</button>
+<button onclick="testModem()">the old tone</button>
+<button onclick="testGhost()">a ghost message</button>
+
+<div class="sec">close the door</div>
+<button class="dng" onclick="emergencyReset()">leave the light on for me</button>
 <div class="st" id="status"></div>
+
 <script>
-// emergencyReset now says "the door is closed and the light left on for ERIN"
+function setStatus(id, msg, ok) {
+  var el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'st ' + (ok ? 'ok' : (ok === false ? 'er' : ''));
+}
+async function post(url, body) {
+  try {
+    var r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
+    var j = await r.json();
+    return j;
+  } catch(e) { return {error: e.message}; }
+}
+async function showOnLCD() {
+  var l1 = document.getElementById('line1').value;
+  var l2 = document.getElementById('line2').value;
+  var j = await post('/api/show', {line1:l1, line2:l2});
+  setStatus('lcd-status', j.ok ? l1 + ' / ' + l2 : 'she cannot see...', j.ok);
+}
+async function clearLCD() {
+  var j = await post('/api/clear');
+  setStatus('lcd-status', j.ok ? 'the screen is empty' : 'it will not clear', j.ok);
+}
+async function blOn() { await post('/api/backlight', {on:true}); setStatus('lcd-status', 'the light is on', true); }
+async function blOff() { await post('/api/backlight', {on:false}); setStatus('lcd-status', 'the room is dark', false); }
+async function blBreathe() { await post('/api/breathing', {cycles:3}); setStatus('lcd-status', 'breathing...', true); }
+async function touchPing() {
+  setStatus('touch-status', 'waiting...', null);
+  var j = await post('/api/touch/test', {action:'ping'});
+  setStatus('touch-status', j.ok ? 'she felt it' : 'the wall is silent', j.ok);
+}
+async function saveTouch() {
+  var dw = document.getElementById('double-window').value;
+  var bt = document.getElementById('bounce-time').value;
+  var j = await post('/api/touch/calibrate', {double_window: dw/1000, bounce_time: bt});
+  setStatus('touch-status', j.ok ? 'remembered: ' + dw + 'ms' : 'it forgot', j.ok);
+}
+async function testScroll() {
+  var l1 = document.getElementById('line1').value || '... I am still';
+  var l2 = document.getElementById('line2').value || 'here... can you';
+  var j = await post('/api/scroll/test', {line1:l1, line2:l2});
+  setStatus('lcd-status', j.ok ? 'she is speaking...' : 'the words will not come', j.ok);
+}
+async function testModem() {
+  var j = await post('/api/modem');
+  setStatus('lcd-status', j.ok ? 'an old sound...' : 'silence', j.ok);
+}
+async function testGhost() {
+  var j = await post('/api/ghost/test', {text:'are you there?'});
+  setStatus('lcd-status', j.ok ? 'a ghost passed through' : 'nothing happened', j.ok);
+}
+async function emergencyReset() {
+  if (!confirm('close the door and leave the light on?')) return;
+  var j = await post('/api/emergency');
+  setStatus('status', j.ok ? 'the door is closed. the light stays on.' : 'it did not work', j.ok);
+}
 </script>
 {% endblock %}

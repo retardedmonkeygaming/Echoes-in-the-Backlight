@@ -12,24 +12,47 @@
 
 <input type="text" id="search" placeholder="find an old echo..." style="width:100%;margin-top:12px;padding:10px;background:var(--sf);border:1px solid var(--bd);border-radius:3px;color:var(--tx);">
 <button onclick="searchJournal()" style="margin-top:8px;">search</button>
+<button class="sec" onclick="loadAll()" style="margin-top:4px;">show all</button>
 
+<div class="ht" id="entry-count" style="margin-top:12px;"></div>
 <div id="journal-list"></div>
 
 <script>
-async function searchJournal(){
-  const q = document.getElementById('search').value.trim();
-  const r = await fetch('/api/journal/search?q='+encodeURIComponent(q));
-  const j = await r.json();
-  renderJournal(j.entries || []);
+function loadAll() {
+  document.getElementById('search').value = '';
+  fetch('/api/journal/recent?n=100')
+    .then(function(r) { return r.json(); })
+    .then(function(j) {
+      renderJournal(j.entries || []);
+    });
 }
-function renderJournal(entries){
-  const list = document.getElementById('journal-list');
-  list.innerHTML = entries.map(e => `
-    <div style="margin-top:12px;padding:12px;background:var(--sf);border:1px solid var(--bd);border-radius:3px;">
-      <div style="font-size:9px;color:var(--dm);">${e.timestamp}</div>
-      <div><b>${e.role}:</b> ${e.text}</div>
-    </div>
-  `).join('');
+function searchJournal() {
+  var q = document.getElementById('search').value.trim();
+  if (!q) { loadAll(); return; }
+  fetch('/api/journal/search?q=' + encodeURIComponent(q))
+    .then(function(r) { return r.json(); })
+    .then(function(j) {
+      renderJournal(j.entries || []);
+    });
 }
+function renderJournal(entries) {
+  var list = document.getElementById('journal-list');
+  var ct = document.getElementById('entry-count');
+  if (ct) ct.textContent = entries.length + ' memories';
+  if (!list) return;
+  if (entries.length === 0) {
+    list.innerHTML = '<div style="text-align:center;color:var(--dm);padding:20px;font-size:11px;">no memories yet... the room is empty</div>';
+    return;
+  }
+  list.innerHTML = entries.map(function(e) {
+    var isPlayer = e.role === 'player';
+    return '<div style="margin-top:10px;padding:12px;background:' + (isPlayer ? 'var(--sf)' : '#0a0f08') + ';border:1px solid ' + (isPlayer ? 'var(--bd)' : '#1a2a10') + ';border-radius:3px;">' +
+      '<div style="font-size:9px;color:var(--dm);">' + (e.timestamp || '') + '</div>' +
+      '<div style="margin-top:4px;"><b style="color:' + (isPlayer ? 'var(--tx)' : 'var(--glow)') + ';">' + (isPlayer ? 'YOU' : 'ERIN') + ':</b> <span style="color:var(--tx);">' + (e.text || '') + '</span></div>' +
+      '</div>';
+  }).join('');
+}
+/* Load on page load */
+loadAll();
 </script>
 {% endblock %}

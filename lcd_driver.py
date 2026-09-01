@@ -174,11 +174,22 @@ class LCD:
         self.bl_pulse(0.5, 0.5); self.flash_led(0.2); self.beep(0.05)
 
     def show_options(self, opts, sel=0):
+        """Show options with scroll support. Always shows selected option + next.
+        Row 0: > selected_option
+        Row 1:   next_option (or scroll dots if last)"""
         with self._display_lock:
             self.clear()
-            for i in range(min(ROWS, len(opts))):
-                marker = "> " if i == sel else "  "
-                self.write_row(i, marker + opts[i][:COLS-2])
+            if not opts or opts[0] == "...":
+                return
+            n = len(opts)
+            # Row 0: the selected option
+            self.write_row(0, "> " + opts[sel][:COLS - 2])
+            # Row 1: the next option (wrapping), with scroll indicator
+            nxt = (sel + 1) % n
+            if n > 1:
+                indicator = "v" if n > 2 else " "
+                line2 = indicator + " " + opts[nxt][:COLS - 3]
+                self.write_row(1, line2)
 
     def show_memory_dust(self):
         """Tiny speck for 5s — visible proof Echo is collecting pieces."""

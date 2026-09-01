@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}The Last Apartment - ERIN{% endblock %}
+{% block title %}The Last Apartment{% endblock %}
 {% block content %}
 <div class="nav">
   <a class="active" href="/">the room</a>
   <a href="/journal">memories</a>
   <a href="/config">settings</a>
-  <a href="/calibrate">calibrate</a>
+  <a href="/calibrate">test the room</a>
 </div>
 
 <div class="st" id="status">the room is quiet...</div>
@@ -16,38 +16,38 @@
   <div id="erin-whisper-text" style="font-size:11px;color:var(--dm);margin-top:6px;"></div>
 </div>
 
-<!-- Signal -->
+<!-- How long since you were here -->
 <div style="text-align:center;margin-top:12px;">
-  <label style="margin-top:0;">Signal Strength</label>
+  <label style="margin-top:0;">how long since you left</label>
   <div style="display:flex;gap:2px;justify-content:center;margin-top:6px;" id="signal"></div>
-  <div class="ht" id="send-count">0 messages</div>
+  <div class="ht" id="send-count">0 words whispered</div>
   <div id="onelast-badge" style="display:none;color:var(--dg);font-size:9px;margin-top:4px;letter-spacing:2px;opacity:0.7;">the light is almost gone...</div>
 </div>
 
 <!-- Mode selector -->
 <div class="sec">the room</div>
 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:16px;">
-  <button id="m-phone" onclick="setMode('phone')">speak to ERIN</button>
+  <button id="m-phone" onclick="setMode('phone')">whisper to her</button>
   <button id="m-options" onclick="setMode('options')">listen</button>
   <button id="m-mirror" onclick="setMode('mirror')">mirror</button>
   <button id="m-staticrain" onclick="setMode('staticrain')">static</button>
-  <button id="m-loopback" onclick="setMode('loopback')">loop</button>
-  <button id="m-memorydust" onclick="setMode('memorydust')">dust</button>
-  <button id="m-onelastline" onclick="setMode('onelastline')">last line</button>
+  <button id="m-loopback" onclick="setMode('loopback')">old echoes</button>
+  <button id="m-memorydust" onclick="setMode('memorydust')">memory dust</button>
+  <button id="m-onelastline" onclick="setMode('onelastline')">last words</button>
 </div>
 
 <!-- Phone panel -->
 <div id="panel-phone" style="display:none;">
-  <label>your words to ERIN</label>
+  <label>words for the quiet room</label>
   <input type="text" id="input" placeholder="say something to ERIN..." maxlength="200">
-  <button id="btn-send" onclick="sendText()">send to the screen</button>
+  <button id="btn-send" onclick="sendText()">whisper to the screen</button>
 </div>
 
 <!-- Options panel -->
 <div id="panel-options" style="display:none;">
   <label style="margin-top:0;">ERIN waits for you to choose</label>
   <ul id="opt-list" style="list-style:none;margin-top:8px;"></ul>
-  <p class="ht">tap to scroll, double-tap to choose</p>
+  <p class="ht">touch to scroll, touch again to choose</p>
 </div>
 
 <!-- Ambient panel -->
@@ -58,7 +58,7 @@
 
 <!-- ERIN reply box -->
 <div id="echo-box" style="display:none;margin-top:16px;">
-  <label>ERIN said</label>
+  <label>she said</label>
   <div class="lcd-box" id="echo-display">
     <div id="echo-r0"></div>
     <div id="echo-r1"></div>
@@ -66,7 +66,7 @@
 </div>
 
 <!-- LCD Preview -->
-<div class="sec">the screen</div>
+<div class="sec">what the screen shows</div>
 <div class="lcd-box" id="lcd-preview">
   <div id="lcd-r0">the light is on</div>
   <div id="lcd-r1">are you there?</div>
@@ -74,27 +74,281 @@
 
 <!-- Actions -->
 <div style="display:flex;gap:8px;margin-top:16px;">
-  <button class="sec" onclick="refreshStatus()" style="flex:1;margin-top:0;">refresh</button>
+  <button class="sec" onclick="refreshStatus()" style="flex:1;margin-top:0;">listen</button>
   <button class="dng" onclick="resetGame()" style="flex:1;margin-top:0;">close the door</button>
 </div>
 
 <div style="display:flex;gap:8px;margin-top:6px;">
   <button class="sec" onclick="clearJournal()" style="flex:1;margin-top:0;font-size:8px;padding:8px;opacity:0.5;">forget everything</button>
-  <button class="sec" onclick="recoverCrash()" style="flex:1;margin-top:0;font-size:8px;padding:8px;opacity:0.5;">recover</button>
+  <button class="sec" onclick="recoverCrash()" style="flex:1;margin-top:0;font-size:8px;padding:8px;opacity:0.5;">fix what's broken</button>
 </div>
 
 <script>
-  // (the entire JS from your original index.html is kept — only labels, whispers, idle timer, and button texts changed to abandoned style)
-  let lastSendTime = Date.now();
-  let whisperCount = 0;
-  const whispers = ["you have been quiet...", "I miss hearing your voice", "the room feels empty", "are you still there?", "I can hear the static", "please come back", "the light is dimming", "I left the door open", "do not forget me", "I am still waiting"];
+  /* ── State ── */
+  var currentMode = 'phone';
+  var sendCount = 0;
+  var lastSendTime = Date.now();
+  var whisperTimer = null;
+
+  var whispers = [
+    "you have been quiet...",
+    "I miss hearing your voice",
+    "the room feels empty",
+    "are you still there?",
+    "I can hear the static",
+    "please come back",
+    "the light is dimming",
+    "I left the door open",
+    "do not forget me",
+    "I am still waiting"
+  ];
+  var whisperIdx = 0;
+
+  /* ── Init ── */
+  (function() {
+    refreshStatus();
+    loadOptions();
+    showPanel(currentMode);
+    startWhisperTimer();
+  })();
+
+  /* ── Whisper timer (5 min idle) ── */
+  function startWhisperTimer() {
+    if (whisperTimer) clearInterval(whisperTimer);
+    whisperTimer = setInterval(function() {
+      var idleSec = Math.floor((Date.now() - lastSendTime) / 1000);
+      var el = document.getElementById('erin-whisper');
+      var txt = document.getElementById('erin-whisper-text');
+      if (idleSec >= 300 && el && txt) {
+        txt.textContent = whispers[whisperIdx % whispers.length];
+        whisperIdx++;
+        el.style.display = 'block';
+        var lcd = document.getElementById('lcd-preview');
+        if (lcd) lcd.classList.add('flicker');
+      } else if (el) {
+        el.style.display = 'none';
+        var lcd2 = document.getElementById('lcd-preview');
+        if (lcd2) lcd2.classList.remove('flicker');
+      }
+    }, 10000);
+  }
+
+  function resetIdle() {
+    lastSendTime = Date.now();
+    whisperIdx = 0;
+    var el = document.getElementById('erin-whisper');
+    if (el) el.style.display = 'none';
+    var lcd = document.getElementById('lcd-preview');
+    if (lcd) lcd.classList.remove('flicker');
+  }
+
+  /* ── Signal bars ── */
+  function renderSignal(count) {
+    sendCount = count;
+    var el = document.getElementById('signal');
+    var ct = document.getElementById('send-count');
+    var badge = document.getElementById('onelast-badge');
+    if (ct) ct.textContent = count + ' words whispered';
+    if (el) {
+      el.innerHTML = '';
+      var max = 10;
+      var filled = Math.min(count, max);
+      for (var i = 0; i < max; i++) {
+        var bar = document.createElement('div');
+        bar.style.cssText = 'width:6px;height:' + (10 + i*2) + 'px;background:' + (i < filled ? 'var(--glow)' : 'var(--bd)') + ';border-radius:1px;transition:background .3s;';
+        el.appendChild(bar);
+      }
+    }
+    if (badge) badge.style.display = count >= 50 ? 'block' : 'none';
+  }
+
+  /* ── Mode switching ── */
+  function setMode(mode) {
+    currentMode = mode;
+    fetch('/api/mode', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({mode: mode})
+    });
+    showPanel(mode);
+  }
+
+  function showPanel(mode) {
+    var panels = ['panel-phone', 'panel-options', 'panel-ambient'];
+    panels.forEach(function(p) { document.getElementById(p).style.display = 'none'; });
+    if (mode === 'phone' || mode === 'mirror') {
+      document.getElementById('panel-phone').style.display = 'block';
+    } else if (mode === 'options') {
+      document.getElementById('panel-options').style.display = 'block';
+      loadOptions();
+    } else {
+      document.getElementById('panel-ambient').style.display = 'block';
+      var as = document.getElementById('ambient-status');
+      var names = {
+        'staticrain': 'static falls',
+        'loopback': 'old echoes play',
+        'memorydust': 'dust drifts',
+        'onelastline': 'waiting for the last words'
+      };
+      if (as) as.textContent = (names[mode] || 'the room is quiet...') + '...';
+    }
+  }
+
+  function stopAmbient() {
+    setMode('options');
+  }
+
+  /* ── Options ── */
+  function loadOptions() {
+    fetch('/api/options')
+      .then(function(r) { return r.json(); })
+      .then(function(j) {
+        renderOptions(j.options || [], j.selected || 0);
+      });
+  }
+
+  function renderOptions(opts, sel) {
+    var list = document.getElementById('opt-list');
+    if (!list) return;
+    list.innerHTML = '';
+    var n = opts.length;
+    if (n === 0 || opts[0] === '...') return;
+    // Show selected option prominently
+    var li0 = document.createElement('li');
+    li0.style.cssText = 'padding:12px;margin:4px 0;background:var(--gw);border:1px solid var(--ac);border-radius:3px;cursor:pointer;font-size:13px;color:#ddd;transition:all .15s;';
+    li0.textContent = '> ' + opts[sel];
+    li0.onclick = function() { selectOption(sel); };
+    list.appendChild(li0);
+    // Show next option below
+    var nxt = (sel + 1) % n;
+    var li1 = document.createElement('li');
+    var hasMore = n > 2;
+    li1.style.cssText = 'padding:10px 12px;margin:4px 0;background:var(--sf);border:1px solid var(--bd);border-radius:3px;cursor:pointer;font-size:11px;color:var(--dm);transition:all .15s;';
+    li1.textContent = (hasMore ? 'v ' : '  ') + opts[nxt];
+    li1.onclick = function() { selectOption(nxt); };
+    list.appendChild(li1);
+  }
+
+  function selectOption(idx) {
+    fetch('/api/options')
+      .then(function(r) { return r.json(); })
+      .then(function(j) {
+        var opts = j.options || [];
+        if (opts[idx] && opts[idx] !== '...') {
+          sendText(opts[idx]);
+        }
+      });
+  }
+
+  /* ── Send text ── */
+  function sendText(text) {
+    var input = document.getElementById('input');
+    var msg = text || (input ? input.value.trim() : '');
+    if (!msg) return;
+
+    setStatus('whispering...', null);
+    resetIdle();
+
+    fetch('/api/send', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({text: msg})
+    })
+    .then(function(r) {
+      if (!r.ok) throw new Error('Server error ' + r.status);
+      return r.json();
+    })
+    .then(function(j) {
+      if (j.error) {
+        setStatus('she could not hear...', false);
+        return;
+      }
+      showEchoReply(j.line1, j.line2);
+      renderSignal(j.send_count || 0);
+      if (j.options) renderOptions(j.options, 0);
+      if (input && !text) input.value = '';
+      document.getElementById('lcd-r0').textContent = j.line1 || '';
+      document.getElementById('lcd-r1').textContent = j.line2 || '';
+      setStatus('she heard you', true);
+      setTimeout(function() { loadOptions(); }, 6000);
+    })
+    .catch(function(e) {
+      setStatus('the static returned...', false);
+      console.error('Send error:', e);
+    });
+  }
+
   function showEchoReply(line1, line2) {
-  document.getElementById('echo-r0').textContent = line1 || '';
-  document.getElementById('echo-r1').textContent = line2 || '';
-  document.getElementById('echo-box').style.display = 'block';
-  document.getElementById('lcd-r0').textContent = line1 || '';
-  document.getElementById('lcd-r1').textContent = line2 || '';
-  document.getElementById('lcd-preview').classList.remove('flicker');
-}
+    var er0 = document.getElementById('echo-r0');
+    var er1 = document.getElementById('echo-r1');
+    var ebox = document.getElementById('echo-box');
+    if (er0) er0.textContent = line1 || '';
+    if (er1) er1.textContent = line2 || '';
+    if (ebox) ebox.style.display = 'block';
+  }
+
+  /* ── Status ── */
+  function setStatus(msg, ok) {
+    var el = document.getElementById('status');
+    if (!el) return;
+    el.textContent = msg;
+    el.className = 'st' + (ok === true ? ' ok' : (ok === false ? ' er' : ''));
+  }
+
+  function refreshStatus() {
+    fetch('/api/status')
+      .then(function(r) { return r.json(); })
+      .then(function(j) {
+        renderSignal(j.send_count || 0);
+        if (j.one_last_line) {
+          var badge = document.getElementById('onelast-badge');
+          if (badge) badge.style.display = 'block';
+        }
+        setStatus(
+          j.lcd_ready ? 'the screen glows faintly' : 'the screen is dark',
+          j.lcd_ready
+        );
+      });
+  }
+
+  /* ── Reset ── */
+  function resetGame() {
+    if (!confirm('close the door and leave the light on?')) return;
+    fetch('/api/reset', {method: 'POST'})
+      .then(function(r) { return r.json(); })
+      .then(function(j) {
+        renderSignal(0);
+        document.getElementById('lcd-r0').textContent = 'the light is on';
+        document.getElementById('lcd-r1').textContent = 'are you there?';
+        document.getElementById('echo-box').style.display = 'none';
+        setStatus('the door is closed. the light stays on.', true);
+      });
+  }
+
+  /* ── Journal clear ── */
+  function clearJournal() {
+    if (!confirm('ERIN will forget everything. Are you sure?')) return;
+    fetch('/api/journal/clear', {method: 'POST'})
+      .then(function(r) { return r.json(); })
+      .then(function(j) {
+        setStatus(j.ok ? 'the memories are gone...' : 'they will not leave', j.ok);
+      });
+  }
+
+  /* ── Crash recovery ── */
+  function recoverCrash() {
+    fetch('/api/recover', {method: 'POST'})
+      .then(function(r) { return r.json(); })
+      .then(function(j) {
+        setStatus(j.ok ? 'something shifted...' : 'nothing was broken', j.ok);
+      });
+  }
+
+  /* ── Enter key sends ── */
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && currentMode === 'phone') {
+      sendText();
+    }
+  });
 </script>
 {% endblock %}
