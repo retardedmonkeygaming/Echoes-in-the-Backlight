@@ -15,6 +15,7 @@ from lcd_driver import LCD
 from touch_sensor import TouchSensor
 import gemini_service as echo_ai
 import emotional_options
+from gemini_service import get_room_decay_line
 
 # -- Config --
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
@@ -54,7 +55,14 @@ _truth_activated = False
 _truth_journal_saved = False
 _ONE_LAST_LINE_THRESHOLD = 100
 
+# Revelation mode state
+_revelation_unlocked = False
+_revelation_activated = False
+_revelation_journal_saved = False
+
 _last_send_time = time.time()
+_silent_mode_active = False
+_silent_mode_warning_sent = False
 
 # Display-ready flag — set True when LCD finishes showing ERIN's reply
 _display_ready = True
@@ -280,6 +288,11 @@ def _handle_player_input(text):
     config["send_count"] = config.get("send_count", 0) + 1
     save_config(config)
 
+    # Room decay: after 60+ messages, show room detail in journal
+    if config["send_count"] >= 60 and config["send_count"] % 5 == 0:
+        decay = get_room_decay_line()
+        echo_ai.save_to_journal("narrator", decay)
+
     if config["send_count"] >= _ONE_LAST_LINE_THRESHOLD:
         _one_last_line_active = True
 
@@ -289,6 +302,13 @@ def _handle_player_input(text):
         _truth_unlocked = echo_ai.get_truth_unlocked()
         if _truth_unlocked:
             _log("TRUTH MODE UNLOCKED")
+
+    # Check revelation mode unlock
+    global _revelation_unlocked
+    if not _revelation_unlocked and not _revelation_activated:
+        _revelation_unlocked = echo_ai.revelation_unlocked()
+        if _revelation_unlocked:
+            _log("REVELATION MODE UNLOCKED")
 
     if lcd:
         total_len = len(line1) + len(line2)
@@ -527,6 +547,8 @@ def api_status():
         "personality": echo_ai.get_personality(),
         "truth_unlocked": _truth_unlocked,
         "truth_activated": _truth_activated,
+        "revelation_unlocked": _revelation_unlocked,
+        "revelation_activated": _revelation_activated,
     })
 
 
@@ -646,12 +668,12 @@ def api_tone_test():
             "static": lcd.tone_static,
             "melancholic": lcd.tone_melancholic,
             "hollow": lcd.tone_hollow,
+            "revelation": lcd.revelation_tone,
         }
         fn = tone_map.get(tone, lcd.tone_melancholic)
         t = threading.Thread(target=fn, args=(dur, _scroll_stop), daemon=True)
         t.start()
         return jsonify({"ok": True, "tone": tone, "duration": dur})
-    return jsonify({"error": "LCD not initialized"}), 500
     return jsonify({"error": "LCD not initialized"}), 500
 
 @app.route("/api/ghost/test", methods=["POST"])
@@ -682,7 +704,6 @@ def api_send():
     if not text:
         return jsonify({"error": "empty", "line1": "...", "line2": "say something?"}), 400
 
-    _last_send_time = time.time()
     echo_ai.save_to_journal("player", text)
     name = config.get("player_name", "friend")
 
@@ -807,13 +828,24 @@ def api_random_memory():
 @app.route("/api/replay", methods=["GET"])
 def api_replay():
     """Return last 5 journal entries for Continue Old Conversation."""
-    entries = echo_ai.get_journal_entries(last_n=10)
+    entries = echo_ai.get_journal_entries(last_n=20)
     # Only return player + narrator pairs (skip idle whispers etc)
     replay = []
     for e in entries:
         role = e.get("role", "")
         text = e.get("text", "")
         if role in ("player", "narrator") and text:
+            # Skip room decay lines and generic whispers
+            if text.startswith("the couch") or text.startswith("the window"):
+                continue
+            if text.startswith("the floor") or text.startswith("the paint"):
+                continue
+            if text.startswith("the door sticks") or text.startswith("dust covers"):
+                continue
+            if text.startswith("the light flickers") or text.startswith("the walls"):
+                continue
+            if text.startswith("a glass") or text.startswith("the chair"):
+                continue
             replay.append({"role": role, "text": text[:16]})
     # Return last 5 meaningful entries
     return jsonify({"entries": replay[-5:]})
@@ -973,6 +1005,100 @@ def _truth_ending_worker():
 
 
 # ============================================================
+#  API: Revelation Mode (final emotional climax)
+# ============================================================
+
+@app.route("/api/revelation", methods=["GET"])
+def api_revelation_status():
+    return jsonify({
+        "unlocked": _revelation_unlocked,
+        "activated": _revelation_activated,
+        "journal_count": echo_ai.get_journal_count(),
+        "threshold": 70,
+    })
+
+@app.route("/api/revelation/activate", methods=["POST"])
+def api_revelation_activate():
+    global _revelation_activated, _revelation_journal_saved
+    if not _revelation_unlocked:
+        return jsonify({"ok": False, "error": "not unlocked"})
+    if _revelation_activated:
+        return jsonify({"ok": False, "error": "already active"})
+    _revelation_activated = True
+    _stop_bg()
+    if not _revelation_journal_saved:
+        echo_ai.save_to_journal("narrator", echo_ai.get_revelation_journal())
+        _revelation_journal_saved = True
+    t = threading.Thread(target=_revelation_ending_worker, daemon=True)
+    t.start()
+    return jsonify({"ok": True})
+
+@app.route("/api/revelation/choice", methods=["POST"])
+def api_revelation_choice():
+    global _revelation_activated, _revelation_unlocked
+    body = request.get_json(force=True)
+    choice = body.get("choice", "leave_light")
+    echo_ai.save_to_journal("player", choice)
+    if lcd:
+        if choice == "close_door":
+            lcd.show("the door is", "closed forever")
+            time.sleep(2)
+            lcd.fade_to_black(duration=3.0)
+            _revelation_activated = False
+            _revelation_unlocked = False
+        else:
+            lcd.show("the light stays", "on for you")
+            lcd.fade_in(duration=2.0)
+            time.sleep(2)
+            lcd.show_home()
+            _revelation_activated = False
+    return jsonify({"ok": True, "choice": choice})
+
+
+def _revelation_ending_worker():
+    """The final emotional climax — screen fades to black, one line appears,
+    revelation tone plays, then the door choice."""
+    global _display_ready, _revelation_activated
+    with _display_ready_lock:
+        _display_ready = False
+    if lcd:
+        try:
+            # Phase 1: Show "the truth is..." and start the haunting tone
+            lcd.show("the truth is...", "")
+            t = threading.Thread(target=lcd.revelation_tone, args=(8.0,), daemon=True)
+            t.start()
+            time.sleep(2.0)
+
+            # Phase 2: Slowly fade to black
+            lcd.fade_to_black(duration=3.0)
+            time.sleep(1.0)
+
+            # Phase 3: The final line appears — "You killed me..."
+            lcd.fade_in(duration=1.5)
+            time.sleep(0.3)
+            lcd.show("you killed me...", "and I loved you")
+            time.sleep(6.0)
+
+            # Phase 4: Fade to black again
+            lcd.fade_to_black(duration=2.0)
+            time.sleep(1.5)
+
+            # Phase 5: The door line appears — "The door is still open..."
+            lcd.fade_in(duration=1.0)
+            time.sleep(0.3)
+            lcd.show("the door is still", "open... even gone")
+            time.sleep(5.0)
+
+            # Phase 6: Show the choice
+            lcd.show_options(["> close the door", "v leave the light"], 0)
+        except Exception as e:
+            _log("revelation ending error: " + str(e))
+    with _display_ready_lock:
+        _display_ready = True
+    _log("REVELATION ENDING COMPLETE")
+
+
+# ============================================================
 #  API: Reset / Emergency
 # ============================================================
 
@@ -980,9 +1106,12 @@ def _truth_ending_worker():
 def api_reset():
     _stop_bg()
     global _one_last_line_active, _options, _display_ready, _truth_unlocked, _truth_activated
+    global _revelation_unlocked, _revelation_activated
     _one_last_line_active = False
     _truth_unlocked = False
     _truth_activated = False
+    _revelation_unlocked = False
+    _revelation_activated = False
     config["send_count"] = 0
     save_config(config)
     _options = ["...", "...", "..."]
@@ -998,9 +1127,12 @@ def api_reset():
 def api_emergency():
     _stop_bg()
     global _one_last_line_active, _options, _display_ready, _truth_unlocked, _truth_activated
+    global _revelation_unlocked, _revelation_activated
     _one_last_line_active = False
     _truth_unlocked = False
     _truth_activated = False
+    _revelation_unlocked = False
+    _revelation_activated = False
     _options = ["...", "...", "..."]
     with _display_ready_lock:
         _display_ready = True
@@ -1040,6 +1172,19 @@ def api_journal_clear():
 # ============================================================
 #  API: Debug
 # ============================================================
+
+@app.route("/api/room-decay", methods=["GET"])
+def api_room_decay():
+    """Get a room decay line based on message count."""
+    count = config.get("send_count", 0)
+    if count >= 60:
+        return jsonify({"decay": get_room_decay_line(), "count": count})
+    return jsonify({"decay": None, "count": count})
+
+@app.route("/api/silent", methods=["GET"])
+def api_silent_status():
+    return jsonify({"silent_mode": _silent_mode_active})
+
 
 @app.route("/api/debug", methods=["GET"])
 def api_debug():

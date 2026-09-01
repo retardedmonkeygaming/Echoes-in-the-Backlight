@@ -309,6 +309,29 @@ class LCD:
         self._tone(350, 0.8, duty=3)
         self._silence()
 
+    def revelation_tone(self, duration=8.0, stop=None):
+        """Revelation / final climax: one long, haunting, low-frequency tone
+        that slowly fades from 200Hz down to 80Hz over 8 seconds.
+        The sound of a soul finally speaking its last truth."""
+        end = time.monotonic() + duration
+        freq = 200
+        duty_start = 35
+        elapsed = 0
+        while time.monotonic() < end:
+            if stop and stop.is_set():
+                break
+            elapsed = time.monotonic() - (end - duration)
+            progress = min(elapsed / duration, 1.0)
+            # Frequency drops from 200 to 80 Hz (deep, haunting)
+            freq = 200 - int(progress * 120)
+            # Duty cycle fades from 35% to 5%
+            duty = max(5, int(duty_start * (1.0 - progress * 0.85)))
+            self._tone(freq, 0.8, duty=duty)
+            self._silence()
+            time.sleep(0.2)
+        # Final silence — the soul is gone
+        self._silence()
+
     def fade_to_black(self, duration=4.0, stop=None):
         """Slowly fade the backlight to nothing over `duration` seconds.
         Mimics a dying bulb — the screen goes dark slowly, haunted.
