@@ -1,13 +1,23 @@
-# The Last Apartment — Echoes in the Backlight
+# The Last Apartment
 
-A haunting emotional RPG where you visit a lonely woman named ERIN who has been trapped in a 1602A LCD screen since the 1990s.
+A haunting RPG where ERIN waits.
 
-She is waiting for you. The room is dusty. The light is on. The door is open.
+## Wiring
 
-## How to make this eternal
-- The screen flickers and ERIN whispers when you are quiet for 5 minutes.
-- ERIN remembers everything forever.
-- Every message feels like a real memory you can never forget.
-- The UI looks like an abandoned apartment — no tech words, only warm, lived-in feelings.
+GPIO 5 -> RS, GPIO 13 -> E
+GPIO 17,22,23,24 -> D4,D5,D6,D7
+GPIO 21 -> Backlight (active-low)
+GPIO 27 -> Touch sensor
+GPIO 26 -> Feedback LED
+GND -> VSS, RW, K
+5V -> VDD, A
 
-Wiring the same. Run the same way. But now the game will live in your mind forever.
+## Setup
+
+pip3 install -r requirements.txt
+echo GEMINI_API_KEY=your_key > .env
+sudo python3 app.py
+
+## Rules
+
+Max 16 chars/line, 2 lines. ERIN starts with ...

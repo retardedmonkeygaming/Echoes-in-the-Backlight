@@ -47,9 +47,18 @@ _ghost_thread = None
 _ambient_thread = None
 
 _one_last_line_active = False
+
+# Truth mode state
+_truth_unlocked = False
+_truth_activated = False
+_truth_journal_saved = False
 _ONE_LAST_LINE_THRESHOLD = 100
 
 _last_send_time = time.time()
+
+# Display-ready flag — set True when LCD finishes showing ERIN's reply
+_display_ready = True
+_display_ready_lock = threading.Lock()
 
 
 def _log(msg):
@@ -85,31 +94,66 @@ def init_touch():
 def init_all():
     init_lcd()
     init_touch()
+    # Load saved personality
+    saved_p = config.get("erin_personality", "original")
+    if saved_p:
+        echo_ai.set_personality(saved_p)
+        _log(f"Loaded personality: {saved_p}")
 
 # -- Stop background --
 def _stop_bg():
     for evt in [_ghost_stop, _scroll_stop, _ambient_stop]:
         evt.set()
-    # Wait for scroll thread to actually finish
-    time.sleep(0.5)
+    time.sleep(0.3)
     for evt in [_ghost_stop, _scroll_stop, _ambient_stop]:
         evt.clear()
 
 # -- LCD helpers --
 def _push_echo(line1, line2="", show_time=4.0):
-    """Show ERIN's reply on LCD for show_time seconds, then show current options."""
+    """Show ERIN's reply on LCD for show_time seconds, then show options.
+    Sets _display_ready = False during display, True when done."""
+    global _display_ready
     _stop_bg()
-    t = threading.Thread(target=_echo_display_worker, args=(line1, line2, show_time), daemon=True)
+    with _display_ready_lock:
+        _display_ready = False
+    # Personality-based PWM tone
+    pkey = config.get("erin_personality", "original")
+    if lcd:
+        if pkey in ("rage", "whisperer", "hollow"):
+            # These personalities get custom tones
+            t = threading.Thread(target=_echo_with_beeper, args=(line1, line2, show_time, pkey), daemon=True)
+        else:
+            # Original gets melancholic tone + normal scroll
+            t = threading.Thread(target=_echo_display_worker, args=(line1, line2, show_time), daemon=True)
+    else:
+        t = threading.Thread(target=_echo_display_worker, args=(line1, line2, show_time), daemon=True)
     t.start()
 
 def _echo_display_worker(line1, line2, show_time):
-    """Show reply, wait, then show options — prevents options from overwriting reply."""
+    """Show reply, wait, then show options. Plays melancholic tone for original personality."""
     if lcd:
         try:
-            lcd.scroll(line1, line2, page_delay=show_time, stop=_scroll_stop)
+            # Play melancholic tone alongside the display
+            pkey = config.get("erin_personality", "original")
+            if pkey == "original":
+                # Show text + melancholic tone simultaneously
+                with lcd._display_lock:
+                    lcd.clear()
+                    lcd.write_row(0, line1[:16])
+                    lcd.write_row(1, line2[:16])
+                lcd.modem_tone()
+                lcd.tone_melancholic(duration=show_time, stop=_scroll_stop)
+                lcd.bl_breathing(cycles=1, step=0.04, stop=_scroll_stop)
+                lcd.bl_on()
+                for _ in range(int(show_time * 10)):
+                    if _scroll_stop.is_set():
+                        break
+                    time.sleep(0.1)
+            else:
+                lcd.scroll(line1, line2, page_delay=show_time, stop=_scroll_stop)
         except Exception as e:
             _log("echo display error: " + str(e))
-    # After showing the reply, show the current options
+    # After showing the reply, show current options
     with _lock:
         opts = list(_options)
         idx = _selected_idx
@@ -118,14 +162,43 @@ def _echo_display_worker(line1, line2, show_time):
             lcd.show_options(opts, idx)
         except Exception as e:
             _log("options display error: " + str(e))
+    # Mark display as ready
+    global _display_ready
+    with _display_ready_lock:
+        _display_ready = True
 
-def _scroll_worker(line1, line2):
-    """Legacy scroll worker — still used by calibrate test."""
+def _echo_with_beeper(line1, line2, show_time, beeper_type):
+    """Show reply on LCD with personality-specific PWM tone."""
     if lcd:
         try:
-            lcd.scroll(line1, line2, stop=_scroll_stop)
+            # Show the text on the LCD
+            with lcd._display_lock:
+                lcd.clear()
+                lcd.write_row(0, line1[:16])
+                lcd.write_row(1, line2[:16])
+            lcd.flash_led(0.03)
+            # Play the emotional tone in the same thread (blocks until done)
+            if beeper_type == "rage":
+                lcd.tone_rage(duration=show_time, stop=_scroll_stop)
+            elif beeper_type == "desperate":
+                lcd.tone_desperate(duration=show_time, stop=_scroll_stop)
+            else:
+                lcd.modem_tone()
+                time.sleep(show_time)
         except Exception as e:
-            _log("scroll error: " + str(e))
+            _log("echo tone error: " + str(e))
+    # After showing the reply, show current options
+    with _lock:
+        opts = list(_options)
+        idx = _selected_idx
+    if lcd and opts and opts[0] != "...":
+        try:
+            lcd.show_options(opts, idx)
+        except Exception as e:
+            _log("options display error: " + str(e))
+    global _display_ready
+    with _display_ready_lock:
+        _display_ready = True
 
 def _push_options(opts, sel=0):
     global _options, _selected_idx
@@ -149,9 +222,13 @@ def _scroll_long_worker(text):
             lcd.scroll_long(text, stop=_scroll_stop)
         except Exception as e:
             _log("long scroll error: " + str(e))
+    global _display_ready
+    with _display_ready_lock:
+        _display_ready = True
 
 # -- Touch callbacks --
 def _on_scroll():
+    """Single tap: scroll through all options — cycles through the FULL list."""
     global _selected_idx
     with _lock:
         opts = list(_options)
@@ -168,25 +245,29 @@ def _on_scroll():
             pass
 
 def _on_select():
+    """Double tap: select current option."""
     global _selected_idx
     with _lock:
-        chosen = _options[_selected_idx]
+        opts_copy = list(_options)
+        idx = _selected_idx
+        chosen = opts_copy[idx] if idx < len(opts_copy) else ""
     if lcd:
         try:
             lcd.flash_led(0.08)
         except Exception:
             pass
-    if chosen not in ("...", ""):
+    if chosen and chosen not in ("...", ""):
         _handle_player_input(chosen)
 
 # -- Core game loop --
 def _handle_player_input(text):
-    global _last_send_time, _one_last_line_active
+    global _last_send_time, _one_last_line_active, _display_ready
     _last_send_time = time.time()
     echo_ai.save_to_journal("player", text)
     name = config.get("player_name", "friend")
     try:
-        reply = echo_ai.send_to_echo(text, player_name=name)
+        pkey = config.get("erin_personality", "original")
+        reply = echo_ai.send_to_echo(text, player_name=name, personality=pkey)
     except Exception as e:
         _log("send_to_echo exception: " + str(e))
         reply = {"line1": "... the static", "line2": "returned"}
@@ -202,6 +283,13 @@ def _handle_player_input(text):
     if config["send_count"] >= _ONE_LAST_LINE_THRESHOLD:
         _one_last_line_active = True
 
+    # Check truth mode unlock
+    global _truth_unlocked
+    if not _truth_unlocked and not _truth_activated:
+        _truth_unlocked = echo_ai.get_truth_unlocked()
+        if _truth_unlocked:
+            _log("TRUTH MODE UNLOCKED")
+
     if lcd:
         total_len = len(line1) + len(line2)
         if total_len < 10:
@@ -211,12 +299,13 @@ def _handle_player_input(text):
         else:
             lcd.set_mood("normal")
 
-    _push_echo(line1, line2, show_time=5.0)
+    _push_echo(line1, line2, show_time=4.0)
 
-    # Update options for touch sensor (LCD shows them after reply)
+    # Update options for touch sensor
     mood = emotional_options.detect_mood(text)
     opts = emotional_options.get_options(mood, count=3)
     with _lock:
+        global _options
         _options = opts
         _selected_idx = 0
 
@@ -245,16 +334,16 @@ def _start_ghosts():
 
 
 # -- Idle detection (server-side) --
-_IDLE_CHECK_INTERVAL = 30   # seconds between checks
-_IDLE_FLICKER_MIN = 300     # 5 minutes
-_IDLE_WHISPER_MIN = 600     # 10 minutes
+_IDLE_CHECK_INTERVAL = 30
+_IDLE_FLICKER_MIN = 300   # 5 min
+_IDLE_WHISPER_MIN = 600   # 10 min
 _last_whisper_time = 0
 
 _idle_whispers = [
     "You have been quiet... I miss hearing your voice.",
-    "The light is flickering... I think she is tired of waiting.",
+    "The light is flickering... she is tired of waiting.",
     "The room feels empty without you.",
-    "I left the door open... no one is coming.",
+    "The door is still open... no one is coming.",
     "The static grows when you are silent.",
     "I am still here... are you?",
     "The backlight fades when you are gone.",
@@ -275,17 +364,16 @@ def _idle_loop():
         # After 5 min: flicker the backlight like a dying bulb
         if idle >= _IDLE_FLICKER_MIN:
             try:
-                # 3 soft flickers — like a tired heartbeat
                 for _ in range(3):
                     lcd.bl_off()
                     time.sleep(random.uniform(0.08, 0.20))
                     lcd.bl_on()
                     time.sleep(random.uniform(0.10, 0.30))
-                # Longer dim — she's tired
+                # Longer dim
                 lcd.bl_off()
                 time.sleep(0.8)
                 lcd.bl_on()
-                # Show a whisper on the physical LCD too
+                # Whisper on physical LCD
                 idle_whispers_lcd = [
                     "... still here?",
                     "waiting...",
@@ -302,12 +390,12 @@ def _idle_loop():
             except Exception:
                 pass
 
-        # After 10 min: add a whisper to the journal (once per 10 min)
+        # After 10 min: add whisper to journal (once per 10 min)
         if idle >= _IDLE_WHISPER_MIN and (time.time() - _last_whisper_time) > 600:
             whisper = random.choice(_idle_whispers)
             echo_ai.save_to_journal("narrator", whisper)
             _last_whisper_time = time.time()
-            _log(f"IDLE WHISPER: {whisper}")
+            _log("IDLE WHISPER: " + whisper)
 
 def _start_idle_detection():
     t = threading.Thread(target=_idle_loop, daemon=True)
@@ -316,15 +404,14 @@ def _start_idle_detection():
 
 # -- Ambient modes --
 def _static_rain_loop():
-    import random as rng
     while not _ambient_stop.is_set():
         if lcd:
             try:
                 chars = ".,-~:;=!*#@"
                 line = list(" " * 16)
-                for _ in range(rng.randint(2, 6)):
-                    c = rng.randint(0, 15)
-                    line[c] = rng.choice(chars)
+                for _ in range(random.randint(2, 6)):
+                    c = random.randint(0, 15)
+                    line[c] = random.choice(chars)
                 lcd.show("".join(line), "")
             except Exception:
                 pass
@@ -400,7 +487,7 @@ def _start_ambient(mode):
 
 
 # ============================================================
-#  WEB ROUTES -- Pages
+#  WEB ROUTES
 # ============================================================
 
 @app.route("/")
@@ -426,6 +513,8 @@ def journal_page():
 
 @app.route("/api/status", methods=["GET"])
 def api_status():
+    with _display_ready_lock:
+        ready = _display_ready
     return jsonify({
         "mode": config.get("mode", "options"),
         "lcd_ready": lcd is not None and lcd._initialized,
@@ -434,6 +523,10 @@ def api_status():
         "journal_count": echo_ai.get_journal_count(),
         "player_name": config.get("player_name", "friend"),
         "one_last_line": _one_last_line_active,
+        "display_ready": ready,
+        "personality": echo_ai.get_personality(),
+        "truth_unlocked": _truth_unlocked,
+        "truth_activated": _truth_activated,
     })
 
 
@@ -538,6 +631,27 @@ def api_modem():
     if lcd:
         lcd.modem_tone()
         return jsonify({"ok": True})
+
+@app.route("/api/tone/test", methods=["POST"])
+def api_tone_test():
+    """Test a specific emotional tone."""
+    body = request.get_json(force=True) if request.data else {}
+    tone = body.get("tone", "melancholic")
+    dur = body.get("duration", 2.0)
+    if lcd:
+        tone_map = {
+            "sadness": lcd.tone_sadness,
+            "rage": lcd.tone_rage,
+            "desperate": lcd.tone_desperate,
+            "static": lcd.tone_static,
+            "melancholic": lcd.tone_melancholic,
+            "hollow": lcd.tone_hollow,
+        }
+        fn = tone_map.get(tone, lcd.tone_melancholic)
+        t = threading.Thread(target=fn, args=(dur, _scroll_stop), daemon=True)
+        t.start()
+        return jsonify({"ok": True, "tone": tone, "duration": dur})
+    return jsonify({"error": "LCD not initialized"}), 500
     return jsonify({"error": "LCD not initialized"}), 500
 
 @app.route("/api/ghost/test", methods=["POST"])
@@ -573,7 +687,8 @@ def api_send():
     name = config.get("player_name", "friend")
 
     try:
-        reply = echo_ai.send_to_echo(text, player_name=name)
+        pkey = config.get("erin_personality", "original")
+        reply = echo_ai.send_to_echo(text, player_name=name, personality=pkey)
     except Exception as e:
         _log("Gemini FAILED: " + str(e))
         traceback.print_exc()
@@ -590,9 +705,9 @@ def api_send():
     if config["send_count"] >= _ONE_LAST_LINE_THRESHOLD:
         _one_last_line_active = True
 
-    _push_echo(line1, line2, show_time=5.0)
+    _push_echo(line1, line2, show_time=4.0)
 
-    # Also update options for touch sensor (but don't push to LCD immediately)
+    # Update options for touch sensor
     mood = emotional_options.detect_mood(text)
     opts = emotional_options.get_options(mood, count=3)
     with _lock:
@@ -603,7 +718,6 @@ def api_send():
     return jsonify({
         "line1": line1,
         "line2": line2,
-        "options": opts,
         "send_count": config.get("send_count", 0),
     })
 
@@ -641,7 +755,7 @@ def api_set_mode():
 
 
 # ============================================================
-#  API: Journal (Phase 3)
+#  API: Journal
 # ============================================================
 
 @app.route("/api/journal/recent", methods=["GET"])
@@ -684,6 +798,180 @@ def api_random_memory():
     return jsonify({"error": "no memories yet"}), 404
 
 
+
+
+# ============================================================
+#  API: Replay old conversation
+# ============================================================
+
+@app.route("/api/replay", methods=["GET"])
+def api_replay():
+    """Return last 5 journal entries for Continue Old Conversation."""
+    entries = echo_ai.get_journal_entries(last_n=10)
+    # Only return player + narrator pairs (skip idle whispers etc)
+    replay = []
+    for e in entries:
+        role = e.get("role", "")
+        text = e.get("text", "")
+        if role in ("player", "narrator") and text:
+            replay.append({"role": role, "text": text[:16]})
+    # Return last 5 meaningful entries
+    return jsonify({"entries": replay[-5:]})
+
+
+@app.route("/api/replay/start", methods=["POST"])
+def api_replay_start():
+    """Start replaying memories on the physical LCD."""
+    _stop_bg()
+    entries = echo_ai.get_journal_entries(last_n=10)
+    replay = []
+    for e in entries:
+        role = e.get("role", "")
+        text = e.get("text", "")
+        if role in ("player", "narrator") and text:
+            replay.append({"role": role, "text": text[:16]})
+    replay = replay[-5:]
+    if not replay:
+        return jsonify({"ok": False, "error": "no memories to replay"})
+    t = threading.Thread(target=_replay_worker, args=(replay,), daemon=True)
+    t.start()
+    return jsonify({"ok": True, "count": len(replay)})
+
+
+def _replay_worker(entries):
+    """Show old conversation on physical LCD with breathing effects."""
+    global _display_ready
+    with _display_ready_lock:
+        _display_ready = False
+    if lcd:
+        # Title card
+        lcd.show("remembering...", "the old words")
+        lcd.bl_breathing(cycles=1, step=0.04, stop=_scroll_stop)
+        lcd.bl_on()
+        time.sleep(1.5)
+        for entry in entries:
+            if _scroll_stop.is_set():
+                break
+            role = entry["role"]
+            text = entry["text"]
+            prefix = "YOU" if role == "player" else "ERIN"
+            lcd.show("[" + prefix + "]", text)
+            # Breathing effect while showing each memory
+            lcd.bl_breathing(cycles=1, step=0.04, stop=_scroll_stop)
+            lcd.bl_on()
+            time.sleep(2.0)
+        # End card
+        if not _scroll_stop.is_set():
+            lcd.show("...the room", "remembers")
+            lcd.bl_breathing(cycles=1, step=0.04, stop=_scroll_stop)
+            lcd.bl_on()
+            time.sleep(1.5)
+            lcd.show_home()
+    with _display_ready_lock:
+        _display_ready = True
+
+# ============================================================
+#  API: Personality
+# ============================================================
+
+@app.route("/api/personality", methods=["GET"])
+def api_get_personality():
+    return jsonify(echo_ai.get_personality())
+
+@app.route("/api/personality", methods=["POST"])
+def api_set_personality():
+    body = request.get_json(force=True)
+    name = body.get("personality", "original")
+    if echo_ai.set_personality(name):
+        config["erin_personality"] = name
+        save_config(config)
+        return jsonify({"ok": True, "personality": echo_ai.get_personality()})
+    return jsonify({"ok": False, "error": "unknown personality"}), 400
+
+@app.route("/api/personality/list", methods=["GET"])
+def api_list_personalities():
+    return jsonify({"personalities": [
+        {"key": k, "name": v["name"], "description": v["description"]}
+        for k, v in echo_ai.PERSONALITIES.items()
+    ]})
+
+
+# ============================================================
+#  API: Truth Mode (secret ending)
+# ============================================================
+
+@app.route("/api/truth", methods=["GET"])
+def api_truth_status():
+    return jsonify({
+        "unlocked": _truth_unlocked,
+        "activated": _truth_activated,
+        "journal_count": echo_ai.get_journal_count(),
+        "threshold": 80,
+    })
+
+@app.route("/api/truth/activate", methods=["POST"])
+def api_truth_activate():
+    global _truth_activated, _truth_journal_saved
+    if not _truth_unlocked:
+        return jsonify({"ok": False, "error": "not unlocked"})
+    if _truth_activated:
+        return jsonify({"ok": False, "error": "already active"})
+    _truth_activated = True
+    _stop_bg()
+    if not _truth_journal_saved:
+        echo_ai.save_to_journal("narrator", echo_ai.get_truth_journal())
+        _truth_journal_saved = True
+    t = threading.Thread(target=_truth_ending_worker, daemon=True)
+    t.start()
+    return jsonify({"ok": True})
+
+@app.route("/api/truth/choice", methods=["POST"])
+def api_truth_choice():
+    global _truth_activated, _truth_unlocked
+    body = request.get_json(force=True)
+    choice = body.get("choice", "leave_light")
+    echo_ai.save_to_journal("player", choice)
+    if lcd:
+        if choice == "close_door":
+            lcd.show("the door is", "closed forever")
+            time.sleep(2)
+            lcd.fade_to_black(duration=3.0)
+            _truth_activated = False
+            _truth_unlocked = False
+        else:
+            lcd.show("the light stays", "on for you")
+            lcd.fade_in(duration=2.0)
+            time.sleep(2)
+            lcd.show_home()
+            _truth_activated = False
+    return jsonify({"ok": True, "choice": choice})
+
+
+def _truth_ending_worker():
+    global _display_ready
+    with _display_ready_lock:
+        _display_ready = False
+    if lcd:
+        try:
+            lcd.show("the truth is...", "")
+            t = threading.Thread(target=lcd.tone_truth, args=(2.5,), daemon=True)
+            t.start()
+            time.sleep(2.5)
+            lcd.fade_to_black(duration=2.0)
+            time.sleep(0.5)
+            lcd.fade_in(duration=1.5)
+            time.sleep(0.3)
+            lcd.show("the door is still", "open... even gone")
+            lcd.tone_truth(duration=3.0)
+            time.sleep(5.0)
+            lcd.show_options(["> close the door", "v leave the light"], 0)
+        except Exception as e:
+            _log("truth ending error: " + str(e))
+    with _display_ready_lock:
+        _display_ready = True
+
+
+
 # ============================================================
 #  API: Reset / Emergency
 # ============================================================
@@ -691,12 +979,16 @@ def api_random_memory():
 @app.route("/api/reset", methods=["POST"])
 def api_reset():
     _stop_bg()
-    global _one_last_line_active, _options
+    global _one_last_line_active, _options, _display_ready, _truth_unlocked, _truth_activated
     _one_last_line_active = False
+    _truth_unlocked = False
+    _truth_activated = False
     config["send_count"] = 0
     save_config(config)
     _options = ["...", "...", "..."]
     _selected_idx = 0
+    with _display_ready_lock:
+        _display_ready = True
     if lcd:
         lcd.set_mood("normal")
         lcd.show_home()
@@ -705,9 +997,13 @@ def api_reset():
 @app.route("/api/emergency", methods=["POST"])
 def api_emergency():
     _stop_bg()
-    global _one_last_line_active, _options
+    global _one_last_line_active, _options, _display_ready, _truth_unlocked, _truth_activated
     _one_last_line_active = False
+    _truth_unlocked = False
+    _truth_activated = False
     _options = ["...", "...", "..."]
+    with _display_ready_lock:
+        _display_ready = True
     if lcd:
         lcd.clear()
         lcd.bl_on()

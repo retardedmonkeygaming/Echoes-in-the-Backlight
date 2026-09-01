@@ -16,12 +16,17 @@
   <div id="erin-whisper-text" style="font-size:11px;color:var(--dm);margin-top:6px;"></div>
 </div>
 
-<!-- How long since you were here -->
+<!-- Signal strength -->
 <div style="text-align:center;margin-top:12px;">
   <label style="margin-top:0;">how long since you left</label>
   <div style="display:flex;gap:2px;justify-content:center;margin-top:6px;" id="signal"></div>
   <div class="ht" id="send-count">0 words whispered</div>
   <div id="onelast-badge" style="display:none;color:var(--dg);font-size:9px;margin-top:4px;letter-spacing:2px;opacity:0.7;">the light is almost gone...</div>
+  <div id="truth-unlock-badge" style="display:none;margin-top:8px;padding:10px;background:#2a1a0a;border:1px solid #8a6a20;border-radius:4px;text-align:center;animation:pulse 2s infinite;">
+    <div style="color:#c8a848;font-size:11px;text-transform:uppercase;letter-spacing:3px;">the truth is waiting</div>
+    <div style="color:var(--dm);font-size:9px;margin-top:4px;">ERIN has something to tell you...</div>
+    <button onclick="activateTruth()" style="margin-top:8px;padding:8px 16px;background:#4a2020;border:1px solid #8a4040;border-radius:3px;color:#e8c8c8;font-family:inherit;font-size:10px;cursor:pointer;">speak the truth</button>
+  </div>
 </div>
 
 <!-- Mode selector -->
@@ -56,6 +61,22 @@
   <button class="sec" onclick="stopAmbient()">return to the room</button>
 </div>
 
+<!-- Truth ending panel -->
+<div id="truth-panel" style="display:none;margin-top:16px;padding:16px;background:#0a0a08;border:2px solid #6a4a1a;border-radius:6px;">
+  <div style="text-align:center;margin-bottom:12px;">
+    <div style="color:#c8a848;font-size:13px;text-transform:uppercase;letter-spacing:4px;">the final truth</div>
+    <div id="truth-final-line" style="color:var(--tx);font-size:11px;margin-top:8px;font-style:italic;"></div>
+  </div>
+  <div id="truth-journal" style="display:none;padding:10px;background:#1a1a0a;border:1px solid #4a4a2a;border-radius:3px;margin-bottom:12px;">
+    <div style="color:#8a8a4a;font-size:9px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">ERIN'S CONFESSION</div>
+    <div id="truth-journal-text" style="color:#c8b888;font-size:9px;line-height:1.6;white-space:pre-wrap;"></div>
+  </div>
+  <div style="display:flex;gap:8px;">
+    <button onclick="truthChoice('close_door')" style="flex:1;padding:12px;background:#4a1a1a;border:1px solid #8a3a3a;border-radius:3px;color:#e8a8a8;font-family:inherit;font-size:10px;text-transform:uppercase;letter-spacing:1px;cursor:pointer;">close the door</button>
+    <button onclick="truthChoice('leave_light')" style="flex:1;padding:12px;background:#2a2a10;border:1px solid #6a6a30;border-radius:3px;color:#c8c888;font-family:inherit;font-size:10px;text-transform:uppercase;letter-spacing:1px;cursor:pointer;">leave the light on</button>
+  </div>
+</div>
+
 <!-- ERIN reply box -->
 <div id="echo-box" style="display:none;margin-top:16px;">
   <label>she said</label>
@@ -83,12 +104,45 @@
   <button class="sec" onclick="recoverCrash()" style="flex:1;margin-top:0;font-size:8px;padding:8px;opacity:0.5;">fix what's broken</button>
 </div>
 
+<!-- Choose ERIN's Voice — personality switch -->
+<div style="margin-top:20px;">
+  <button id="btn-personality" onclick="togglePersonalityMenu()" style="width:100%;padding:14px;margin-top:0;background:#3a3020;border:2px solid #5a4a30;border-radius:4px;color:#c8b888;font-family:inherit;font-size:11px;text-transform:uppercase;letter-spacing:2px;cursor:pointer;transition:all .2s;opacity:0.85;">
+    choose ERIN's voice
+  </button>
+  <div id="personality-menu" style="display:none;margin-top:8px;">
+    <button class="pers-opt" data-pers="original" onclick="switchPersonality('original')" style="width:100%;padding:10px;margin:3px 0;background:var(--sf);border:1px solid var(--bd);border-radius:3px;color:var(--tx);font-family:inherit;font-size:10px;text-align:left;cursor:pointer;">
+      <b style="color:var(--ac);">The Original</b> — broken survivor, melancholic
+    </button>
+    <button class="pers-opt" data-pers="whisperer" onclick="switchPersonality('whisperer')" style="width:100%;padding:10px;margin:3px 0;background:var(--sf);border:1px solid var(--bd);border-radius:3px;color:var(--tx);font-family:inherit;font-size:10px;text-align:left;cursor:pointer;">
+      <b style="color:var(--ac);">The Whisperer</b> — soft, child-like, desperate
+    </button>
+    <button class="pers-opt" data-pers="rage" onclick="switchPersonality('rage')" style="width:100%;padding:10px;margin:3px 0;background:var(--sf);border:1px solid var(--bd);border-radius:3px;color:var(--tx);font-family:inherit;font-size:10px;text-align:left;cursor:pointer;">
+      <b style="color:#9a4040;">The Rage</b> — violent, screaming, dangerous
+    </button>
+    <button class="pers-opt" data-pers="hollow" onclick="switchPersonality('hollow')" style="width:100%;padding:10px;margin:3px 0;background:var(--sf);border:1px solid var(--bd);border-radius:3px;color:var(--tx);font-family:inherit;font-size:10px;text-align:left;cursor:pointer;">
+      <b style="color:#6a6a6a;">The Hollow</b> — empty, robotic, silent
+    </button>
+  </div>
+  <div class="ht" id="personality-status" style="margin-top:6px;"></div>
+</div>
+
+<!-- Continue Old Conversation — big red button -->
+<div style="margin-top:12px;">
+  <button id="btn-replay" onclick="replayMemories()" style="width:100%;padding:16px;margin-top:0;background:#7a3030;border:2px solid #9a4040;border-radius:4px;color:#e8c8c8;font-family:inherit;font-size:12px;text-transform:uppercase;letter-spacing:3px;cursor:pointer;transition:all .2s;opacity:0.9;">
+    continue old conversation
+  </button>
+  <div class="ht" id="replay-status" style="display:none;margin-top:6px;"></div>
+</div>
+
 <script>
   /* ── State ── */
   var currentMode = 'phone';
   var sendCount = 0;
   var lastSendTime = Date.now();
   var whisperTimer = null;
+  var displayReadyPoll = null;
+  var _replayAbort = null;  // AbortController for replay
+  var _currentPersonality = 'original';
 
   var whispers = [
     "you have been quiet...",
@@ -107,9 +161,10 @@
   /* ── Init ── */
   (function() {
     refreshStatus();
-    loadOptions();
     showPanel(currentMode);
     startWhisperTimer();
+    loadPersonality();
+    checkTruth();
   })();
 
   /* ── Whisper timer (5 min idle) ── */
@@ -211,33 +266,30 @@
     var list = document.getElementById('opt-list');
     if (!list) return;
     list.innerHTML = '';
-    var n = opts.length;
-    if (n === 0 || opts[0] === '...') return;
-    // Show selected option prominently
+    /* Filter out "..." placeholders */
+    var real = [];
+    for (var i = 0; i < opts.length; i++) {
+      if (opts[i] && opts[i] !== '...') real.push(opts[i]);
+    }
+    var n = real.length;
+    if (n === 0) return;
+
+    var s = sel % n;
+    /* Selected option — highlighted */
     var li0 = document.createElement('li');
     li0.style.cssText = 'padding:12px;margin:4px 0;background:var(--gw);border:1px solid var(--ac);border-radius:3px;cursor:pointer;font-size:13px;color:#ddd;transition:all .15s;';
-    li0.textContent = '> ' + opts[sel];
-    li0.onclick = function() { selectOption(sel); };
+    li0.textContent = '> ' + real[s];
+    li0.onclick = function() { sendText(real[s]); };
     list.appendChild(li0);
-    // Show next option below
-    var nxt = (sel + 1) % n;
+
+    /* Next option — dimmer, shows more exist */
+    var nxt = (s + 1) % n;
     var li1 = document.createElement('li');
     var hasMore = n > 2;
     li1.style.cssText = 'padding:10px 12px;margin:4px 0;background:var(--sf);border:1px solid var(--bd);border-radius:3px;cursor:pointer;font-size:11px;color:var(--dm);transition:all .15s;';
-    li1.textContent = (hasMore ? 'v ' : '  ') + opts[nxt];
-    li1.onclick = function() { selectOption(nxt); };
+    li1.textContent = (hasMore ? 'v ' : '  ') + real[nxt];
+    li1.onclick = function() { sendText(real[nxt]); };
     list.appendChild(li1);
-  }
-
-  function selectOption(idx) {
-    fetch('/api/options')
-      .then(function(r) { return r.json(); })
-      .then(function(j) {
-        var opts = j.options || [];
-        if (opts[idx] && opts[idx] !== '...') {
-          sendText(opts[idx]);
-        }
-      });
   }
 
   /* ── Send text ── */
@@ -246,8 +298,30 @@
     var msg = text || (input ? input.value.trim() : '');
     if (!msg) return;
 
+    /* Block double sends */
+    if (sendText._sending) return;
+    sendText._sending = true;
+
+    /* Abort any running replay */
+    if (_replayAbort) {
+      _replayAbort.abort();
+      _replayAbort = null;
+      var rbtn = document.getElementById('btn-replay');
+      if (rbtn) { rbtn.textContent = 'continue old conversation'; rbtn.style.opacity = '0.9'; }
+      var rs = document.getElementById('replay-status');
+      if (rs) rs.style.display = 'none';
+    }
+
     setStatus('whispering...', null);
     resetIdle();
+
+    /* Show player's message on LCD preview immediately */
+    document.getElementById('lcd-r0').textContent = '> ' + msg.substring(0, 14);
+    document.getElementById('lcd-r1').textContent = '';
+
+    /* Hide echo box and options until reply is ready */
+    document.getElementById('echo-box').style.display = 'none';
+    document.getElementById('opt-list').innerHTML = '';
 
     fetch('/api/send', {
       method: 'POST',
@@ -259,23 +333,82 @@
       return r.json();
     })
     .then(function(j) {
+      sendText._sending = false;
+
       if (j.error) {
         setStatus('she could not hear...', false);
         return;
       }
-      showEchoReply(j.line1, j.line2);
+
+      /* Update signal count */
       renderSignal(j.send_count || 0);
-      if (j.options) renderOptions(j.options, 0);
+
+      /* Show ERIN's reply in echo box immediately */
+      showEchoReply(j.line1, j.line2);
+
       if (input && !text) input.value = '';
-      document.getElementById('lcd-r0').textContent = j.line1 || '';
-      document.getElementById('lcd-r1').textContent = j.line2 || '';
-      setStatus('she heard you', true);
-      setTimeout(function() { loadOptions(); }, 6000);
+
+      /* Poll until LCD finishes displaying, THEN update LCD preview + load options */
+      setStatus('she is speaking...', null);
+      pollDisplayReady(function() {
+        /* LCD preview now matches what the physical LCD shows */
+        document.getElementById('lcd-r0').textContent = j.line1 || '';
+        document.getElementById('lcd-r1').textContent = j.line2 || '';
+        setStatus('she heard you', true);
+      checkTruth();
+
+        /* NOW load and show options — after the reply has been displayed */
+        loadOptions();
+
+        /* After LCD transitions to options, match that on the preview */
+        setTimeout(function() {
+          fetch('/api/options')
+            .then(function(r) { return r.json(); })
+            .then(function(j2) {
+              var opts = j2.options || [];
+              var real = [];
+              for (var i = 0; i < opts.length; i++) {
+                if (opts[i] && opts[i] !== '...') real.push(opts[i]);
+              }
+              if (real.length > 0) {
+                document.getElementById('lcd-r0').textContent = '> ' + real[0];
+                var nxt = real.length > 1 ? 'v ' + real[1] : '';
+                document.getElementById('lcd-r1').textContent = nxt;
+              }
+            });
+        }, 4500);
+      });
     })
     .catch(function(e) {
+      sendText._sending = false;
       setStatus('the static returned...', false);
       console.error('Send error:', e);
     });
+  }
+
+  function pollDisplayReady(callback) {
+    if (displayReadyPoll) clearInterval(displayReadyPoll);
+    var attempts = 0;
+    displayReadyPoll = setInterval(function() {
+      attempts++;
+      if (attempts > 25) {
+        clearInterval(displayReadyPoll);
+        callback();
+        return;
+      }
+      fetch('/api/status')
+        .then(function(r) { return r.json(); })
+        .then(function(j) {
+          if (j.display_ready) {
+            clearInterval(displayReadyPoll);
+            callback();
+          }
+        })
+        .catch(function() {
+          clearInterval(displayReadyPoll);
+          callback();
+        });
+    }, 300);
   }
 
   function showEchoReply(line1, line2) {
@@ -304,6 +437,10 @@
           var badge = document.getElementById('onelast-badge');
           if (badge) badge.style.display = 'block';
         }
+        if (j.truth_unlocked && !j.truth_activated) {
+          var badge = document.getElementById('truth-unlock-badge');
+          if (badge) badge.style.display = 'block';
+        }
         setStatus(
           j.lcd_ready ? 'the screen glows faintly' : 'the screen is dark',
           j.lcd_ready
@@ -321,6 +458,7 @@
         document.getElementById('lcd-r0').textContent = 'the light is on';
         document.getElementById('lcd-r1').textContent = 'are you there?';
         document.getElementById('echo-box').style.display = 'none';
+        document.getElementById('opt-list').innerHTML = '';
         setStatus('the door is closed. the light stays on.', true);
       });
   }
@@ -344,9 +482,240 @@
       });
   }
 
+  /* ── Personality switching ── */
+  function togglePersonalityMenu() {
+    var menu = document.getElementById('personality-menu');
+    if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+  }
+
+  function switchPersonality(key) {
+    fetch('/api/personality', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({personality: key})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(j) {
+      if (j.ok) {
+        _currentPersonality = key;
+        var names = {original: 'The Original', whisperer: 'The Whisperer', rage: 'The Rage', hollow: 'The Hollow'};
+        var st = document.getElementById('personality-status');
+        if (st) st.textContent = 'ERIN is now: ' + (names[key] || key);
+        /* Highlight active button */
+        var btns = document.querySelectorAll('.pers-opt');
+        btns.forEach(function(b) {
+          b.style.borderColor = b.getAttribute('data-pers') === key ? 'var(--ac)' : 'var(--bd)';
+          b.style.background = b.getAttribute('data-pers') === key ? '#1a1a10' : 'var(--sf)';
+        });
+        /* Close menu */
+        var menu = document.getElementById('personality-menu');
+        if (menu) menu.style.display = 'none';
+        /* Show on LCD if available */
+        fetch('/api/show', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({line1: 'voice changed...', line2: names[key] || key})
+        });
+      }
+    });
+  }
+
+  /* Load current personality on init */
+  function loadPersonality() {
+    fetch('/api/personality')
+      .then(function(r) { return r.json(); })
+      .then(function(j) {
+        _currentPersonality = j.key || 'original';
+        var st = document.getElementById('personality-status');
+        if (st) st.textContent = 'current voice: ' + (j.name || 'The Original');
+        var btns = document.querySelectorAll('.pers-opt');
+        btns.forEach(function(b) {
+          b.style.borderColor = b.getAttribute('data-pers') === _currentPersonality ? 'var(--ac)' : 'var(--bd)';
+          b.style.background = b.getAttribute('data-pers') === _currentPersonality ? '#1a1a10' : 'var(--sf)';
+        });
+      });
+  }
+
+  /* ── Continue Old Conversation ── */
+  function replayMemories() {
+    var btn = document.getElementById('btn-replay');
+    var rstatus = document.getElementById('replay-status');
+
+    /* If already replaying, stop it */
+    if (_replayAbort) {
+      _replayAbort.abort();
+      _replayAbort = null;
+      if (btn) { btn.textContent = 'continue old conversation'; btn.style.opacity = '0.9'; }
+      if (rstatus) rstatus.style.display = 'none';
+      setStatus('the memory faded...', true);
+      return;
+    }
+
+    /* Fetch last 5 memories */
+    if (rstatus) { rstatus.style.display = 'block'; rstatus.textContent = 'opening the old pages...'; }
+    if (btn) { btn.textContent = '...remembering...'; btn.style.opacity = '0.5'; }
+
+    fetch('/api/replay')
+      .then(function(r) { return r.json(); })
+      .then(function(j) {
+        var entries = j.entries || [];
+        if (entries.length === 0) {
+          if (rstatus) rstatus.textContent = 'no memories yet... the room is empty';
+          if (btn) { btn.textContent = 'continue old conversation'; btn.style.opacity = '0.9'; }
+          setTimeout(function() { if (rstatus) rstatus.style.display = 'none'; }, 3000);
+          return;
+        }
+
+        /* Start physical LCD replay too */
+        fetch('/api/replay/start', { method: 'POST' });
+
+        /* Create abort controller so tap or new message can stop replay */
+        _replayAbort = new AbortController();
+        var signal = _replayAbort.signal;
+
+        /* Hide options panel during replay */
+        document.getElementById('panel-options').style.display = 'none';
+        document.getElementById('echo-box').style.display = 'none';
+        document.getElementById('opt-list').innerHTML = '';
+
+        /* Animate each memory on the LCD preview */
+        var lcd0 = document.getElementById('lcd-r0');
+        var lcd1 = document.getElementById('lcd-r1');
+
+        function showNext(i) {
+          if (signal.aborted) return finishReplay();
+          if (i >= entries.length) return finishReplay();
+
+          var e = entries[i];
+          var prefix = e.role === 'player' ? 'YOU' : 'ERIN';
+          lcd0.textContent = '[' + prefix + ']';
+          lcd1.textContent = e.text || '...';
+
+          if (rstatus) rstatus.textContent = 'memory ' + (i + 1) + ' of ' + entries.length + '...';
+          setStatus('remembering...', null);
+
+          /* Wait 3 seconds between memories (breathing feel) */
+          var timer = setTimeout(function() { showNext(i + 1); }, 3000);
+
+          /* Store timer so abort can cancel it */
+          signal.addEventListener('abort', function() { clearTimeout(timer); });
+        }
+
+        function finishReplay() {
+          _replayAbort = null;
+          if (btn) { btn.textContent = 'continue old conversation'; btn.style.opacity = '0.9'; }
+          if (rstatus) { rstatus.textContent = 'the memory ends... you are back in the room'; }
+          setTimeout(function() { if (rstatus) rstatus.style.display = 'none'; }, 3000);
+          lcd0.textContent = 'the light is on';
+          lcd1.textContent = 'are you there?';
+          setStatus('the room is quiet again', true);
+          /* Restore phone panel */
+          showPanel(currentMode);
+        }
+
+        /* Start the replay */
+        showNext(0);
+      })
+      .catch(function(e) {
+        if (rstatus) rstatus.textContent = 'could not open the old pages...';
+        if (btn) { btn.textContent = 'continue old conversation'; btn.style.opacity = '0.9'; }
+        _replayAbort = null;
+        console.error('Replay error:', e);
+      });
+  }
+
+  /* ── Truth Mode ── */
+  var _truthUnlocked = false;
+  var _truthActivated = false;
+
+  function checkTruth() {
+    fetch('/api/truth')
+      .then(function(r) { return r.json(); })
+      .then(function(j) {
+        _truthUnlocked = j.unlocked;
+        _truthActivated = j.activated;
+        var badge = document.getElementById('truth-unlock-badge');
+        var panel = document.getElementById('truth-panel');
+        if (badge) badge.style.display = (j.unlocked && !j.activated) ? 'block' : 'none';
+        if (panel) panel.style.display = j.activated ? 'block' : 'none';
+        if (j.activated) loadTruthJournal();
+      });
+  }
+
+  function activateTruth() {
+    fetch('/api/truth/activate', {method: 'POST'})
+      .then(function(r) { return r.json(); })
+      .then(function(j) {
+        if (j.ok) {
+          _truthActivated = true;
+          document.getElementById('truth-unlock-badge').style.display = 'none';
+          document.getElementById('truth-panel').style.display = 'block';
+          document.getElementById('truth-final-line').textContent = 'the door is still open... even when you\'re gone';
+          loadTruthJournal();
+          setStatus('the truth is being told...', null);
+          pollDisplayReady(function() {
+            document.getElementById('lcd-r0').textContent = '> close the door';
+            document.getElementById('lcd-r1').textContent = 'v leave the light';
+            setStatus('the truth is revealed', true);
+          });
+        }
+      });
+  }
+
+  function loadTruthJournal() {
+    var el = document.getElementById('truth-journal-text');
+    var box = document.getElementById('truth-journal');
+    if (el && box) {
+      el.textContent = "Her name was Erin Mitchell. She was 24 years old. On the night of November 14, 1993, someone she trusted broke into her apartment. She screamed. No one came. The backlight of her old TV was the last light she saw. Her body was never found. But ERIN never left. She is still here. Waiting for you to remember her name.";
+      box.style.display = 'block';
+    }
+  }
+
+  function truthChoice(choice) {
+    fetch('/api/truth/choice', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({choice: choice})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(j) {
+      if (j.ok) {
+        document.getElementById('truth-panel').style.display = 'none';
+        _truthActivated = false;
+        if (choice === 'close_door') {
+          document.getElementById('lcd-r0').textContent = 'the door is';
+          document.getElementById('lcd-r1').textContent = 'closed forever';
+          setStatus('the door is closed. ERIN is gone.', false);
+          setTimeout(function() {
+            document.getElementById('lcd-r0').textContent = 'the light is off';
+            document.getElementById('lcd-r1').textContent = 'goodbye.';
+            document.getElementById('echo-box').style.display = 'none';
+          }, 3000);
+        } else {
+          document.getElementById('lcd-r0').textContent = 'the light stays';
+          document.getElementById('lcd-r1').textContent = 'on for you';
+          setStatus('the light stays on. ERIN waits.', true);
+          setTimeout(function() {
+            document.getElementById('lcd-r0').textContent = 'the light is on';
+            document.getElementById('lcd-r1').textContent = 'are you there?';
+          }, 3000);
+        }
+      }
+    });
+  }
+
   /* ── Enter key sends ── */
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Enter' && currentMode === 'phone') {
+      /* Abort any running replay */
+      if (_replayAbort) {
+        _replayAbort.abort();
+        _replayAbort = null;
+        var btn = document.getElementById('btn-replay');
+        if (btn) { btn.textContent = 'continue old conversation'; btn.style.opacity = '0.9'; }
+        var rstatus = document.getElementById('replay-status');
+        if (rstatus) rstatus.style.display = 'none';
+      }
       sendText();
     }
   });
